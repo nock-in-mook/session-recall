@@ -125,3 +125,31 @@
 - ユーザーが「前回 ○○ の話したよね」と聞いた時に Claude が自動で MCP tool を呼ぶか観察
 - Windows 機での venv セットアップ + MCP server 起動確認（py -3.14 経路の動作確認）
 - Phase 4 着手: セマンティック検索（埋め込みモデル + sqlite-vec）
+
+## 2026-04-24: Phase 3 修正（resume 後の検証で発覚）
+
+### 問題
+- セッション #2 終了後、`/exit` → `claude --resume` で復帰したところ、`session_recall_search` MCP tool が認識されていなかった（ToolSearch でヒットせず、pgrep でも MCP server プロセスなし）
+- `claude mcp list` で確認すると `session-recall` が一覧にない（claude.ai の Drive/Gmail/Calendar しか出ない）
+
+### 原因
+- **Claude Code 2.x は `~/.claude/settings.local.json` の `mcpServers` キーを読まない**
+- 正規の MCP サーバー登録は `claude mcp add` CLI 経由（`~/.claude.json` に保存される）
+- 当初の deploy.sh は jq で `settings.local.json.mcpServers` を merge していたが、効果なかった
+
+### 修正
+- `claude mcp add --scope user session-recall "<run_server.sh>"` で登録 → `claude mcp list` で `✓ Connected` 確認
+- `deploy.sh` の `register_mcp_server()` を以下に変更:
+  - 旧形式の `settings.local.json.mcpServers` キーがあれば自動削除（クリーンアップ）
+  - `claude mcp list` で既存登録チェック
+  - 未登録なら `claude mcp add --scope user` 実行
+- 修正後の deploy.sh は冪等（再実行で「登録済み」表示）
+
+### 教訓
+- Claude Code の MCP 周りは v2.x で API が変わった可能性。**設定ファイル直書き** ではなく、**公式 CLI 経由** で操作するのが安全
+- `claude mcp list` で `✓ Connected` まで確認するのがゴール（ヘルスチェック付き）
+- 検証は実 resume してみないと分からない（私自身の context だけでは MCP の有効化状態を判定できなかった）
+
+### 残課題（resume 後の再検証）
+- もう一度 `/exit` → `claude --resume` で復帰し、ツール一覧に `session-recall` の MCP tool が出るか確認
+- 自然言語クエリで Claude が自動呼び出しするか観察

@@ -196,39 +196,38 @@ setup_venv() {
     fi
 }
 
-# settings.local.json に MCP サーバー登録（jq で merge、冪等）
+# MCP サーバー登録（Claude Code 2.x 以降は `claude mcp add` 経由が正規）
+# 注: 当初 settings.local.json の mcpServers キーに書き込んでいたが、
+#     Claude Code 2.x はそれを読まないため、claude mcp add --scope user に統一。
 register_mcp_server() {
-    local settings="$CLAUDE_HOME/settings.local.json"
+    local run_server="$SYNC_DIR/session-recall/run_server.sh"
 
-    if ! command -v jq >/dev/null 2>&1; then
-        echo "  jq が無いため settings.local.json は自動更新できません" >&2
-        echo "  手動で以下を mcpServers に追加してください:" >&2
-        echo "    \"session-recall\": { \"command\": \"$SYNC_DIR/session-recall/run_server.sh\" }" >&2
+    # 旧形式（settings.local.json.mcpServers）のクリーンアップ
+    if command -v jq >/dev/null 2>&1; then
+        local settings="$CLAUDE_HOME/settings.local.json"
+        if [ -f "$settings" ] && jq -e '.mcpServers' "$settings" >/dev/null 2>&1; then
+            local tmp
+            tmp="$(mktemp)"
+            jq 'del(.mcpServers)' "$settings" > "$tmp"
+            mv "$tmp" "$settings"
+            echo "  旧形式の mcpServers キーを $settings から削除"
+        fi
+    fi
+
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "  claude CLI が見つかりません（MCP 登録スキップ）" >&2
         return 1
     fi
 
-    [ ! -f "$settings" ] && echo '{}' > "$settings"
-
-    local run_server="$SYNC_DIR/session-recall/run_server.sh"
-
-    local tmp
-    tmp="$(mktemp)"
-    jq --arg cmd "$run_server" '
-        .mcpServers = (.mcpServers // {}) |
-        .mcpServers["session-recall"] = {"command": $cmd}
-    ' "$settings" > "$tmp"
-
-    if cmp -s "$settings" "$tmp"; then
-        echo "  $settings → 変更なし"
-        rm -f "$tmp"
+    # 既に登録済みかチェック
+    if claude mcp list 2>/dev/null | grep -qE "^session-recall:"; then
+        echo "  session-recall MCP server: 登録済み"
         return 0
     fi
 
-    local backup="${settings}.bak.$(date +%Y%m%d_%H%M%S)"
-    cp "$settings" "$backup"
-    mv "$tmp" "$settings"
-    echo "  $settings → 更新（mcpServers.session-recall を追加/更新）"
-    echo "    バックアップ: $backup"
+    # claude mcp add で user scope に登録（~/.claude.json に書かれる）
+    echo "  claude mcp add --scope user session-recall <run_server.sh>"
+    claude mcp add --scope user session-recall "$run_server" 2>&1 | sed 's/^/    /'
 }
 
 # === Phase 1: CLAUDE.md 注入 ===
@@ -277,7 +276,7 @@ if [ -n "$SYNC_DIR" ]; then
     chmod +x "$SYNC_DIR/session-recall/run_server.sh"
     echo ""
 
-    echo "[8/8] $CLAUDE_HOME/settings.local.json (MCP server 登録)"
+    echo "[8/8] MCP server 登録 (claude mcp add --scope user)"
     register_mcp_server
 else
     echo "[6/8] _claude-sync 未検出のためスキップ"

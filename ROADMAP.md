@@ -60,6 +60,13 @@
 - 自然言語クエリ（「前回 ○○ の話したよね」等）で Claude が自動的に MCP tool を呼ぶか
 - Windows 機での venv セットアップ + MCP server 起動確認
 
+### Phase 3 修正（resume 後の検証で判明）
+- **Claude Code 2.x は `~/.claude/settings.local.json` の `mcpServers` キーを読まない**ことが判明
+- 正規の登録経路は `claude mcp add` CLI（`~/.claude.json` に書かれる）
+- `deploy.sh` の `register_mcp_server()` を `claude mcp add --scope user` 経由に変更
+- 旧形式の `settings.local.json.mcpServers` キーは自動削除するクリーンアップも追加
+- `claude mcp list` で `session-recall: ... ✓ Connected` 確認済み
+
 ## Phase 4 (Lv.3): セマンティック検索
 キーワード一致しない曖昧クエリ（「あのボタン配置で議論した時」「パフォーマンスで悩んだ件」）に対応。
 

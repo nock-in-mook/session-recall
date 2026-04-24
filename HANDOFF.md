@@ -101,7 +101,7 @@ _Apps2026/session-recall/
 ### 2.3 デプロイ後の配置（Phase 1〜3 全部反映済み）
 ```
 ~/.claude/CLAUDE.md                                  ← v3 ブロック注入済み
-~/.claude/settings.local.json                        ← mcpServers.session-recall 登録済み
+~/.claude.json                                       ← mcpServers.session-recall 登録済み (claude mcp add --scope user)
 ~/.claude/session-recall-venv/                       ← Python venv（PC ローカル）+ mcp 1.27.0 install 済み
 _claude-sync/CLAUDE.md                               ← v3 ブロック注入済み（Win 同期用）
 _claude-sync/commands/recall.md                      ← /recall スキル
@@ -109,6 +109,8 @@ _claude-sync/session-recall/search.sh                ← bash 検索
 _claude-sync/session-recall/server.py                ← MCP サーバー
 _claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
 ```
+
+注: `~/.claude/settings.local.json` の `mcpServers` キーは Claude Code 2.x では読まれないため使わない（旧 deploy で書かれていたが、修正後の deploy で自動削除される）。
 
 ### 2.4 claude-mem の現状
 - **完全撤去済み**（2026-04-24 セッション#27 終了直前に実施）
