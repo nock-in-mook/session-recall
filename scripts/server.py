@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-session-recall MCP サーバー (Phase 4)
+session-recall MCP サーバー (Phase 6)
 
 提供するツール:
   - session_recall_search   : キーワード AND 検索（search.sh ベース、Phase 2 由来）
   - session_recall_semantic : 意味的検索（multilingual-e5-small + sqlite-vec、Phase 4 で追加）
 
+両 tool は Phase 6 で `project` optional 引数をサポート（プロジェクト絞り込み）。
 セマンティック検索 DB は ~/.claude/session-recall-index.db に PC ローカル。
 deploy.sh の Phase 4 工程または手動で `index_build.py` を回して構築する。
 """
@@ -77,6 +78,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "全プロジェクトの SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md を AND 検索する。"
                 "キーワードが明確なときに使う（例: ['ToDo', '結合']、['claude-mem', '撤去']）。"
+                "会話で特定のプロジェクト名（Memolette-Flutter / session-recall / Kanji_Stroke 等）が"
+                "出ていて、その中だけ調べたい場合は project 引数で絞り込むと精度・速度ともに向上する。"
                 "出力は project/file:行番号 ヘッダ + 前後 ±5 行のブロック、更新日時の新しい順、上位 10 件。"
                 "曖昧な概念検索（『あのボタン配置の議論』等）は session_recall_semantic を使う。"
             ),
@@ -88,7 +91,14 @@ async def list_tools() -> list[types.Tool]:
                         "items": {"type": "string"},
                         "description": "検索キーワード（複数指定で AND 検索）。例: [\"ToDo\", \"結合\"]",
                         "minItems": 1,
-                    }
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": (
+                            "絞り込むプロジェクト名（_Apps2026/ or _other-projects/ 直下のフォルダ名）。"
+                            "省略時は全プロジェクト横断。例: 'Memolette-Flutter', 'session-recall'"
+                        ),
+                    },
                 },
                 "required": ["keywords"],
             },
@@ -99,6 +109,7 @@ async def list_tools() -> list[types.Tool]:
                 "全プロジェクトの SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md を"
                 "意味的に近い順で検索する。キーワード一致しない曖昧クエリ向け。"
                 "例: 『あのボタン配置で議論した時』『パフォーマンスで悩んだ件』『○○を諦めた経緯』"
+                "会話で特定のプロジェクト名が出ていてその中だけ調べたい場合は project 引数で絞り込む。"
                 "出力は file:行範囲 + 距離スコア + 該当段落。スコア小さいほど近い。"
                 "キーワードが明確なら session_recall_search のほうが速くて正確。"
             ),
@@ -115,6 +126,13 @@ async def list_tools() -> list[types.Tool]:
                         "minimum": 1,
                         "maximum": 30,
                         "default": 5,
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": (
+                            "絞り込むプロジェクト名（_Apps2026/ or _other-projects/ 直下のフォルダ名）。"
+                            "省略時は全プロジェクト横断。例: 'Memolette-Flutter', 'session-recall'"
+                        ),
                     },
                 },
                 "required": ["query"],
@@ -137,14 +155,21 @@ async def keyword_search(arguments: dict) -> list[types.TextContent]:
             text="エラー: 空でないキーワードを最低 1 つ指定してください",
         )]
 
+    project = str(arguments.get("project", "")).strip() or None
+
     try:
         search_sh = find_search_sh()
     except FileNotFoundError as e:
         return [types.TextContent(type="text", text=str(e))]
 
+    cmd = ["bash", search_sh]
+    if project:
+        cmd.extend(["--project", project])
+    cmd.extend(keywords)
+
     try:
         result = subprocess.run(
-            ["bash", search_sh, *keywords],
+            cmd,
             capture_output=True,
             text=True,
             timeout=30,
@@ -177,6 +202,8 @@ async def semantic_search(arguments: dict) -> list[types.TextContent]:
     except (TypeError, ValueError):
         limit = 5
 
+    project = str(arguments.get("project", "")).strip() or None
+
     db_path = find_index_db()
     if not db_path:
         return [types.TextContent(
@@ -206,19 +233,39 @@ async def semantic_search(arguments: dict) -> list[types.TextContent]:
         sqlite_vec.load(conn)
         conn.enable_load_extension(False)
 
-        rows = conn.execute(
-            """
-            SELECT
-                c.file_path, c.line_start, c.line_end, c.content,
-                v.distance
-            FROM vec_chunks v
-            JOIN chunks c ON c.id = v.rowid
-            WHERE v.embedding MATCH ?
-              AND k = ?
-            ORDER BY v.distance
-            """,
-            (query_bytes, limit),
-        ).fetchall()
+        if project:
+            # sqlite-vec の k = ? は「近傍 k 件取得」の指示。追加 WHERE は post-filter
+            # として効くため、project 絞り込み後に limit 件確保できるよう k を広く取る。
+            k = min(500, max(limit * 20, 100))
+            rows = conn.execute(
+                """
+                SELECT
+                    c.file_path, c.line_start, c.line_end, c.content,
+                    v.distance
+                FROM vec_chunks v
+                JOIN chunks c ON c.id = v.rowid
+                WHERE v.embedding MATCH ?
+                  AND k = ?
+                  AND c.project = ?
+                ORDER BY v.distance
+                LIMIT ?
+                """,
+                (query_bytes, k, project, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.file_path, c.line_start, c.line_end, c.content,
+                    v.distance
+                FROM vec_chunks v
+                JOIN chunks c ON c.id = v.rowid
+                WHERE v.embedding MATCH ?
+                  AND k = ?
+                ORDER BY v.distance
+                """,
+                (query_bytes, limit),
+            ).fetchall()
     except sqlite3.OperationalError as e:
         return [types.TextContent(
             type="text",
@@ -228,9 +275,10 @@ async def semantic_search(arguments: dict) -> list[types.TextContent]:
         conn.close()
 
     if not rows:
+        hint = f"（project='{project}' 絞り込み）" if project else ""
         return [types.TextContent(
             type="text",
-            text=f"「{query}」に意味的に近い記述は見つかりませんでした",
+            text=f"「{query}」に意味的に近い記述は見つかりませんでした{hint}",
         )]
 
     out = []
@@ -264,7 +312,7 @@ async def main() -> None:
             write_stream,
             InitializationOptions(
                 server_name="session-recall",
-                server_version="4.0.0",
+                server_version="6.0.0",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

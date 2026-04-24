@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# /recall スキルの実処理（session-recall Phase 2）
-# 使い方: search.sh <キーワード> [<キーワード2> ...]
+# /recall スキルの実処理（session-recall Phase 2 / Phase 6 で --project 追加）
+# 使い方: search.sh [--project <名前>] <キーワード> [<キーワード2> ...]
 #
 # 複数キーワードは AND 検索（同じファイル内に全キーワードが存在）。
+# --project 指定時は該当プロジェクトフォルダ直下のみを対象にする。
 # 出力: 「### project/file:line」見出し + 前後 ±5 行の本文。
 # 上位 10 ファイルまで表示、超過分は件数のみ末尾に表示。
 
@@ -10,17 +11,48 @@ set -uo pipefail
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
+# 引数パース（--project <name> / --project=<name> を先頭・途中どちらでも受け付ける）
+PROJECT=""
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --project)
+            PROJECT="${2:-}"
+            shift 2 || shift
+            ;;
+        --project=*)
+            PROJECT="${1#--project=}"
+            shift
+            ;;
+        --)
+            shift
+            ARGS+=("$@")
+            break
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+# bash 3.2 (macOS default) は set -u 下で空配列 "${A[@]}" を unbound variable 扱いする
+# ため、条件付き展開 ${A[@]+"${A[@]}"} でガードする
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
 # 引数なし → ヘルプ表示
 if [ $# -eq 0 ]; then
     cat <<'EOF'
-使い方: /recall <キーワード> [<キーワード2> ...]
+使い方: /recall [--project <名前>] <キーワード> [<キーワード2> ...]
 
 複数キーワードは AND 検索（同じファイル内に全キーワードが存在）。
+--project 指定時は該当プロジェクト（_Apps2026/ or _other-projects/ 直下のフォルダ名）のみが対象。
 
 例:
     /recall ToDo 結合
     /recall claude-mem 撤去
     /recall Flutter ビルド エラー
+    /recall --project Memolette-Flutter ToDo 結合
+    /recall --project session-recall 競合
 
 検索対象:
     各プロジェクト直下の SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md
@@ -30,19 +62,30 @@ EOF
 fi
 
 # 検索ルートを構築（Mac/Win 両対応、存在する方を採用）
+# --project 指定時は ROOT/PROJECT で存在するものだけに絞る
 ROOTS=()
-for r in \
-    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_Apps2026" \
-    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_other-projects" \
-    "/g/マイドライブ/_Apps2026" \
-    "/g/マイドライブ/_other-projects" \
-    "/G/マイドライブ/_Apps2026" \
-    "/G/マイドライブ/_other-projects" ; do
-    [ -d "$r" ] && ROOTS+=("$r")
+ROOT_CANDIDATES=(
+    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_Apps2026"
+    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_other-projects"
+    "/g/マイドライブ/_Apps2026"
+    "/g/マイドライブ/_other-projects"
+    "/G/マイドライブ/_Apps2026"
+    "/G/マイドライブ/_other-projects"
+)
+for r in "${ROOT_CANDIDATES[@]}"; do
+    if [ -n "$PROJECT" ]; then
+        [ -d "$r/$PROJECT" ] && ROOTS+=("$r/$PROJECT")
+    else
+        [ -d "$r" ] && ROOTS+=("$r")
+    fi
 done
 
 if [ ${#ROOTS[@]} -eq 0 ]; then
-    echo "検索ルートが見つかりません" >&2
+    if [ -n "$PROJECT" ]; then
+        echo "プロジェクト『${PROJECT}』が _Apps2026/ または _other-projects/ 直下に見つかりません" >&2
+    else
+        echo "検索ルートが見つかりません" >&2
+    fi
     exit 1
 fi
 
@@ -72,13 +115,14 @@ for r in "${ROOTS[@]}"; do
 done
 
 # AND 検索: 残りのキーワードでファイル単位フィルタ
+# FILTERED が空のとき bash 3.2 + set -u で unbound エラーになるため条件展開
 if [ ${#KEYWORDS[@]} -gt 1 ] && [ ${#CANDIDATES[@]} -gt 0 ]; then
     for kw in "${KEYWORDS[@]:1}"; do
         FILTERED=()
         for f in "${CANDIDATES[@]}"; do
             grep -q -- "$kw" "$f" 2>/dev/null && FILTERED+=("$f")
         done
-        CANDIDATES=("${FILTERED[@]}")
+        CANDIDATES=(${FILTERED[@]+"${FILTERED[@]}"})
         [ ${#CANDIDATES[@]} -eq 0 ] && break
     done
 fi
@@ -96,10 +140,12 @@ while IFS= read -r f; do
 done < <(ls -t "${CANDIDATES[@]}" 2>/dev/null)
 
 # プロジェクト/ファイル相対パス抽出
+# ROOTS は --project 指定時にサブディレクトリまで絞るため、表示用の相対パスは
+# ROOT_CANDIDATES（親ディレクトリ）から計算する。
 project_name() {
     local f="$1"
     local r
-    for r in "${ROOTS[@]}"; do
+    for r in "${ROOT_CANDIDATES[@]}"; do
         if [[ "$f" == "$r/"* ]]; then
             echo "${f#$r/}"
             return

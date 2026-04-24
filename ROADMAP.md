@@ -103,11 +103,36 @@
 - `update_index.sh` 単体実行で increment update 成功（exit 0、15 秒）
 - `inject_end_hook` で end.md 末尾追記、冪等性 OK
 
+## Phase 5.1: /end フック競合条件修正 ✅
+セッション #5 の実体検証で Step 2 の並列書き出しと Step 2.5 フックが並走し、書き出し完了前に mtime 比較が走るバグを修正。
+
+- [x] `scripts/update_index.sh` に `sleep 30` 追加（書き出し完了を待つ）
+- [x] `instructions/end_patch.md` のセクション名を Step 2.5 → Step 2.9 + 説明文に「Step 2 の並列処理完了後に実行」と明記
+- [x] 競合シナリオ再現テストで sleep 30 後の新 mtime を正しく検出することを確認
+- [x] セッション #6 終了時の本番試験: コミット 23:27:02 → DB indexed_at 23:27:47、file_mtime も実ファイルと完全一致（Phase 6 セッション開始時に検証完了）
+
+## Phase 6: プロジェクト絞り込み ✅
+両 MCP tool に optional な `project` 引数を追加し、特定プロジェクトのみを対象にした検索を可能に。DB 再構築不要。
+
+- [x] `scripts/search.sh` に `--project <名前>` オプション追加（先頭・途中どちらでも受付け）
+- [x] `scripts/server.py` v6.0.0: 両 tool の inputSchema / description に `project` optional を追加
+  - keyword: search.sh に `--project` を引き渡すだけ
+  - semantic: SQL WHERE に `c.project = ?` を追加、k を limit × 20（最大 500）に広げて post-filter でも十分な候補を確保
+- [x] `commands/recall.md` 更新: `/recall [--project <名前>] <キーワード> ...` に拡張
+- [x] `instructions/claude_md_patch.md` v5: project 引数の使い分け指示を追加
+- [x] bash 3.2（macOS default）で空配列展開が unbound variable になる既存バグも同時修正（`${ARGS[@]+"${ARGS[@]}"}` 形式）
+
+### 動作確認
+- search.sh 単体: ヘルプ / `--project session-recall 競合` / 無効プロジェクト名エラーすべて OK
+- server.py in-process: semantic で `project=Memolette-Flutter` / `project=session-recall` の絞り込みが効く
+- deploy.sh 1 回目: CLAUDE.md v4→v5 置換、recall.md / search.sh / server.py 更新
+- deploy.sh 2 回目: 全 13 工程「変更なし」（冪等性 OK）
+
 ## アイデアメモ
-- `/recall-proj <プロジェクト名> <キーワード>` で特定プロジェクトに限定検索
 - `/timeline <期間>` で時系列ダイジェスト
-- 全プロジェクトの未完了 TODO を横断サマリーする `/todo`
+- 全プロジェクトの未完了 TODO を横断サマリーする `/todo`（ROADMAP 運用と重複しないかは要検討）
 - セッション番号指定での詳細参照（`/session 26` → セッション#26 の要約と主要やり取り）
+- ハイブリッド検索（keyword AND の結果を semantic で re-rank、必要性は要検討）
 
 ## 解決済み備忘
 - ~~検索対象を SESSION_HISTORY のみにするか、DEVLOG/HANDOFF まで広げるか~~ → SESSION_HISTORY + HANDOFF + DEVLOG に確定

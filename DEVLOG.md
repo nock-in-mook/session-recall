@@ -254,3 +254,77 @@
 ### 検証
 1. セッション #5 分の取りこぼしは `update_index.sh` 手動実行で補完（SESSION_HISTORY.md chunks 21→27、file_mtime も現ファイルと一致）
 2. 修正版を競合シナリオで再現テスト: バックグラウンド起動 → 1 秒後に DEVLOG.md touch → sleep 30 後に update_index.sh が touch 後の新 mtime を正しく検出してインデックス反映 ✅
+
+## 2026-04-24: Phase 5.1 本番検証（セッション #7 開始時）
+
+セッション #6 終了時の /end が修正版フックの初回本番試験。
+
+### 結果: 完全達成 ✅
+
+| 指標 | 値 |
+|---|---|
+| コミット時刻（#6 終了） | 23:27:02 |
+| DB 更新時刻（indexed_at） | 23:27:47（コミットの 45 秒後 ≒ sleep 30 + 処理時間） |
+| 総 chunks | 4264 → 4277（+13） |
+
+ファイル別 DB file_mtime と実ファイル mtime の完全一致:
+
+| ファイル | DB 記録 | 実ファイル | 判定 |
+|---|---|---|---|
+| SESSION_HISTORY.md | 23:25:10 | 23:25:10 | ✅ |
+| HANDOFF.md | 23:26:49 | 23:26:49 | ✅ |
+| DEVLOG.md | 22:54:10 | 22:54:10 | ✅ |
+
+Phase 5.1 の sleep 30 + Step 2.9 配置の二重対策で、書き出し完了を確実に待ってから差分を取る挙動を本番で検証できた。
+
+## 2026-04-24: Phase 6 完了（プロジェクト絞り込み）
+
+### 動機
+両 MCP tool は全プロジェクト横断が前提の設計で、特定プロジェクト内の話題を探したいときに他プロジェクトのノイズが混じっていた。DB の `chunks.project` カラムは既存（Phase 4 から）なので、引数追加と SQL WHERE で素直に実装できる。
+
+### 検討と判断（Phase 6 スコープ）
+当初案は以下 5 つ:
+A. プロジェクト絞り込み（今回採用）
+B. セッション番号指定参照
+C. ハイブリッド検索（keyword AND → semantic re-rank）
+D. 時系列フィルタ / タイムライン
+E. 横断未完了 TODO
+
+検討結果、A 以外はいずれもデメリットあり:
+- B: 番号を覚えているケース限定で頻度低い
+- C: MCP tool が 3 つに増えて Claude のツール選択判断コストが増す
+- D: SESSION_HISTORY ヘッダ書式依存で脆い、出力過多リスク
+- E: ROADMAP を検索対象から除外した経緯（未確定アイデアがノイズ）と矛盾
+
+→ **A だけを Phase 6 スコープに確定**。
+
+### 実装
+1. **`scripts/search.sh`**: `--project <名前>` / `--project=<名前>` を先頭・途中どちらでも受付け。ROOT_CANDIDATES を走査して `ROOT/PROJECT` が存在するもののみ ROOTS に採用。0 件時は「プロジェクトが見つからない」エラー
+2. **`scripts/server.py` v6.0.0**:
+   - keyword_search: `project` を subprocess 引数に `--project` として引き渡す
+   - semantic_search: SQL に `WHERE c.project = ?` を追加。sqlite-vec の `k = ?` は近傍 k 件取得の指示で追加 WHERE は post-filter になるため、`k = max(limit * 20, 100)`（最大 500）に広げて project 絞り込み後に十分な候補が残るようにした
+   - inputSchema / description に `project` optional 追加
+3. **`commands/recall.md`**: 使用例に `/recall --project Memolette-Flutter ToDo 結合` 追加。引数はそのまま search.sh に渡すだけ
+4. **`instructions/claude_md_patch.md` v5**: 両 tool の引数説明更新 + 「プロジェクト絞り込み（`project` 引数）の使いどころ」セクション追加。アンチパターンに「特定プロジェクト名を言っているのに project を省いて横断ノイズを混ぜる」を追加
+
+### 同時修正した既存バグ
+bash 3.2（macOS default）は `set -u` 下で空配列 `"${A[@]}"` を unbound variable 扱いする。`search.sh` の `CANDIDATES=("${FILTERED[@]}")` と `set -- "${ARGS[@]}"` がこれに該当し、Phase 6 の keyword_search で AND フィルタが 0 件になった時に顕在化したため、`${A[@]+"${A[@]}"}` 形式に修正。
+
+### 動作確認
+- `search.sh --project session-recall 競合`: session-recall の chunk のみ返却 ✅
+- `search.sh --project NoSuchProject test`: 「プロジェクトが見つからない」エラー ✅
+- `server.py` semantic in-process:
+  - project 指定なしで「Flutter のビルドエラー」→ Memolette-Flutter / P3_reminder がトップ
+  - `project=Memolette-Flutter`: Memolette-Flutter のみ
+  - `project=session-recall`（Flutter 無関係プロジェクト）: session-recall の chunk に絞り込まれた（距離は遠くなったが ORDER BY は有効）
+- `deploy.sh` 1 回目: CLAUDE.md v4→v5 置換、recall.md / search.sh / server.py が更新
+- `deploy.sh` 2 回目: 全 13 工程「変更なし」（冪等性 OK）
+
+### 設計判断
+- プロジェクト名は `_Apps2026/` or `_other-projects/` 直下のフォルダ名（`chunks.project` と完全一致）。外部入力なのでバリデーション不要、0 件ならその旨を返す
+- ハイブリッド検索（C 案）は見送り。将来 search / semantic の精度が足りないと判明したら検討
+- DB スキーマは無変更、既存インデックスをそのまま流用（再構築不要）
+
+### 残課題
+- Windows 機での動作確認（既存の残課題に含める）
+- Claude Code 再起動後に新しい project 引数が Claude の自動判断で使われるか観察
