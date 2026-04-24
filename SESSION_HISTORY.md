@@ -159,3 +159,53 @@
 ### 残課題
 - 次セッション開始時に DB 状態を確認して本番動作完了を検証
 - Windows 機での全工程検証（Mac 単独試験は完了）
+
+---
+## #7 (2026-04-24): Phase 5.1 本番検証 + Phase 6「プロジェクト絞り込み」完成
+
+### Phase 5.1 本番検証（完全達成 ✅）
+セッション #6 終了時の /end が修正版フックの初回本番試験。結果:
+
+| 項目 | 値 |
+|---|---|
+| コミット時刻（#6 終了） | 23:27:02 |
+| DB 更新時刻（indexed_at） | 23:27:47（45 秒後 ≒ sleep 30 + 処理時間） |
+| 総 chunks | 4264 → 4277（+13） |
+| ファイル別 file_mtime | SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md すべて実ファイルと完全一致 ✅ |
+
+Phase 5.1 の sleep 30 + Step 2.9 配置が本番で機能。取りこぼしゼロ。
+
+### Phase 6: プロジェクト絞り込み（完成）
+
+#### スコープ決定
+当初案 A-E を検討し、デメリット検証で A のみを採択:
+- A: プロジェクト絞り込み（採用）
+- B: セッション番号指定（頻度低い）
+- C: ハイブリッド検索（tool 数増 → 判断コスト増）
+- D: 時系列フィルタ（書式依存で脆い）
+- E: 横断 TODO（ROADMAP 除外方針と矛盾）
+
+#### 実装
+- `scripts/search.sh`: `--project <名前>` オプション追加（先頭・途中どちらでも受付け）
+- `scripts/server.py` v6.0.0: 両 tool に project optional 引数追加
+  - keyword: subprocess に `--project` 引き渡し
+  - semantic: SQL WHERE に `c.project = ?` 追加、sqlite-vec の post-filter を考慮して k を limit × 20（最大 500）に拡張
+- `commands/recall.md`: `/recall [--project <名前>] <キーワード>` に拡張
+- `instructions/claude_md_patch.md` v5: project 引数の使い分け指示を追加
+
+#### 同時修正した既存バグ
+bash 3.2（macOS default）で `set -u` 下の空配列 `"${A[@]}"` が unbound variable 扱いになる問題。Phase 6 の keyword_search テストで顕在化したため `${A[@]+"${A[@]}"}` 形式に修正。
+
+#### 動作確認
+- search.sh: ヘルプ、--project 絞り込み、無効 project の全パターン OK
+- server.py in-process: semantic で project=Memolette-Flutter / session-recall の絞り込み動作 ✅
+- deploy.sh 1 回目: CLAUDE.md v4→v5 置換、recall.md / search.sh / server.py 更新
+- deploy.sh 2 回目: 全 13 工程「変更なし」（冪等性 OK）
+
+### コミット
+- `1bf2e10` Phase 6: プロジェクト絞り込み（両 MCP tool に project 引数追加）
+
+### 次セッションで観察する点
+- Claude Code 再起動後、新 MCP server v6.0.0 が有効化される
+- 「Memolette の○○」のような発言で自動的に project 引数付き検索が走るか
+- Phase 5.1 フック継続動作（2 回目の本番稼働）

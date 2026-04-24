@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-24 セッション #6 終了時（Phase 5.1 フック競合バグ修正完了、修正版フックの本番動作確認は次セッション開始時）
+最終更新: 2026-04-24 セッション #7 終了時（Phase 5.1 本番検証完了 + Phase 6「プロジェクト絞り込み」実装完了、新セッションで完成版挙動の観察へ）
 
 ---
 
@@ -69,7 +69,7 @@
 
 ## 2. 現状スナップショット
 
-### 2.1 作ったもの（Phase 1〜4 完了）
+### 2.1 作ったもの（Phase 1〜6 完了）
 ```
 _Apps2026/session-recall/
 ├── README.md                       プロジェクト概要 + ファイル構成 + デプロイ後の配置 + 利用形態
@@ -103,8 +103,10 @@ _Apps2026/session-recall/
   - `32ee178` Phase 4 完了（セマンティック検索）
   - `aafe018` Phase 5（/end フック注入）
   - `8e44449` Phase 5.1（フック競合バグ修正: sleep 30 + Step 2.9）
+  - `a554928` セッション #6 終了: Phase 5.1 本番試験
+  - `1bf2e10` Phase 6: プロジェクト絞り込み（両 MCP tool に project 引数追加、bash 3.2 空配列バグも修正）
 
-### 2.3 デプロイ後の配置（Phase 1〜4 全部反映済み）
+### 2.3 デプロイ後の配置（Phase 1〜6 全部反映済み）
 ```
 ~/.claude/CLAUDE.md                                  ← v4 ブロック注入済み
 ~/.claude.json                                       ← mcpServers.session-recall 登録済み (claude mcp add --scope user)
@@ -282,26 +284,31 @@ _claude-sync/commands/end.md                         ← session-recall:end-hook
 
 ---
 
-## 7. 今すぐの次アクション（resume 後 = Phase 5.1 完了後の本番検証 + 拡張）
+## 7. 今すぐの次アクション（resume 後 = Phase 6 完了後の完成版観察）
 
-### Step 1: 両 MCP tool の認識確認
-resume したら最初のシステムリマインダーで両方の deferred tool が見えるはず:
-- `mcp__session-recall__session_recall_search`（キーワード AND）
-- `mcp__session-recall__session_recall_semantic`（意味検索）
+### Step 1: MCP tool の認識確認
+resume したら最初のシステムリマインダーで両 deferred tool が見えるはず:
+- `mcp__session-recall__session_recall_search`（キーワード AND、project optional）
+- `mcp__session-recall__session_recall_semantic`（意味検索、project optional）
 
-### Step 2: Phase 5.1 修正版フックの本番動作検証（最重要）
-セッション #6 終了時（= 前回 /end 時）が修正版フックの初回本番試験。次セッション開始時に以下を確認:
-1. `sqlite3 ~/.claude/session-recall-index.db "SELECT MAX(indexed_at), datetime(MAX(indexed_at),'unixepoch','localtime') FROM chunks"` で indexed_at が #6 終了時刻より後になっているか
-2. ファイル別 file_mtime を確認し、SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md の DB 記録が実ファイル mtime と一致するか
-3. 一致 → Phase 5.1 修正完全達成、不一致 → さらに原因調査（sleep 30 が足りない等）
+### Step 2: 完成版挙動の観察（最重要）
+Phase 6 で両 tool に `project` optional 引数を追加した。自動挙動を普段の会話で観察:
+1. **プロジェクト名が発言に出た時の自動絞り込み**:
+   「Memolette の ToDo 結合どうなった？」「Kanji_Stroke の同期問題どうだっけ？」等の発言で、Claude が自動的に `project` 引数を付けて検索するか
+2. **曖昧クエリの場合**: 「あのパフォーマンスで悩んだ件」→ semantic 自動選択 + 適切な project 判断
+3. **現プロジェクト限定の意図**: cwd が特定プロジェクトで「過去どうしてたっけ」→ `project=現プロジェクト名` で絞り込むか
+4. サボり気配を感じたら「DB 見て」「過去調べて」と一言促せば発火する（ユーザーへのガイダンス済）
 
-### Step 3: 残課題の対応
+### Step 3: Phase 5.1 フック継続観察
+セッション #6 終了時の 1 回だけ検証完了（Phase 7 開始時に実体確認済）。今セッション #7 終了時が 2 回目の本番稼働。次回開始時に DB の indexed_at が #7 終了時刻より後か、file_mtime が実ファイルと一致するかを確認すれば安定性評価できる。
+
+### Step 4: 残課題
 1. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動、`bash deploy.sh` 1 発で全 13 工程完走するか
-2. **Phase 6 アイデア**: ハイブリッド検索（keyword AND の結果を semantic で re-rank）、プロジェクト絞り込みオプション、時系列フィルタ
+2. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
 
 ### 補足
 - Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）
-- `bash _claude-sync/session-recall/search.sh "キーワード"` 直叩きは常に動く（Phase 0 から不変）
+- `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く（Phase 6 以降）
 
 ## 8. Phase 1〜3 で得た教訓（Phase 4 で活かす）
 
