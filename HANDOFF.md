@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-24 セッション #5 終了時（Phase 1〜5 完成、/end フックも注入済み、残課題は Windows 機検証のみ）
+最終更新: 2026-04-24 セッション #6 終了時（Phase 5.1 フック競合バグ修正完了、修正版フックの本番動作確認は次セッション開始時）
 
 ---
 
@@ -100,6 +100,9 @@ _Apps2026/session-recall/
   - `9421d5f` Phase 1 完了
   - `13a7b54` Phase 2 完了
   - `035537e` Phase 3 完了
+  - `32ee178` Phase 4 完了（セマンティック検索）
+  - `aafe018` Phase 5（/end フック注入）
+  - `8e44449` Phase 5.1（フック競合バグ修正: sleep 30 + Step 2.9）
 
 ### 2.3 デプロイ後の配置（Phase 1〜4 全部反映済み）
 ```
@@ -114,7 +117,7 @@ _claude-sync/session-recall/server.py                ← MCP サーバー (v4: s
 _claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
 _claude-sync/session-recall/index_build.py           ← インデックス構築スクリプト
 _claude-sync/session-recall/update_index.sh          ← /end フック用 wrapper
-_claude-sync/commands/end.md                         ← session-recall:end-hook ブロック注入済み（Step 2.5）
+_claude-sync/commands/end.md                         ← session-recall:end-hook ブロック注入済み（Step 2.9、Phase 5.1 で 2.5 から移動）
 ```
 
 注:
@@ -279,28 +282,22 @@ _claude-sync/commands/end.md                         ← session-recall:end-hook
 
 ---
 
-## 7. 今すぐの次アクション（resume 後 = Phase 4 完了後の検証 + 拡張）
+## 7. 今すぐの次アクション（resume 後 = Phase 5.1 完了後の本番検証 + 拡張）
 
 ### Step 1: 両 MCP tool の認識確認
 resume したら最初のシステムリマインダーで両方の deferred tool が見えるはず:
 - `mcp__session-recall__session_recall_search`（キーワード AND）
 - `mcp__session-recall__session_recall_semantic`（意味検索）
 
-### Step 2: 実体検証
-- キーワード検索: 「前回 Memolette で TODO 結合の件どうしたっけ？」 → `session_recall_search`
-- 意味検索: 「Drive 同期で困った時の対処、何か覚えてる？」 → `session_recall_semantic`
-- 自然言語で曖昧クエリを投げて、Claude が適切な方を選ぶか観察
+### Step 2: Phase 5.1 修正版フックの本番動作検証（最重要）
+セッション #6 終了時（= 前回 /end 時）が修正版フックの初回本番試験。次セッション開始時に以下を確認:
+1. `sqlite3 ~/.claude/session-recall-index.db "SELECT MAX(indexed_at), datetime(MAX(indexed_at),'unixepoch','localtime') FROM chunks"` で indexed_at が #6 終了時刻より後になっているか
+2. ファイル別 file_mtime を確認し、SESSION_HISTORY.md / HANDOFF.md / DEVLOG.md の DB 記録が実ファイル mtime と一致するか
+3. 一致 → Phase 5.1 修正完全達成、不一致 → さらに原因調査（sleep 30 が足りない等）
 
 ### Step 3: 残課題の対応
-1. **`/end` スキル拡張で増分インデックス更新を自動化**:
-   - `_claude-sync/commands/end.md` に以下を追記する案:
-     ```bash
-     "$HOME/.claude/session-recall-venv/bin/python" \
-       "$HOME/Library/CloudStorage/.../session-recall/index_build.py" --quiet 2>/dev/null &
-     ```
-   - バックグラウンド起動で /end の終了を遅らせない
-2. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動
-3. **Phase 5 アイデア**: ハイブリッド検索（keyword AND の結果を semantic で re-rank）、プロジェクト絞り込みオプション、時系列フィルタ
+1. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動、`bash deploy.sh` 1 発で全 13 工程完走するか
+2. **Phase 6 アイデア**: ハイブリッド検索（keyword AND の結果を semantic で re-rank）、プロジェクト絞り込みオプション、時系列フィルタ
 
 ### 補足
 - Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）

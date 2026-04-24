@@ -129,3 +129,33 @@
 - 残課題: Windows 機での全 13 工程動作確認のみ
 - Phase 6 アイデア（ハイブリッド検索、プロジェクト絞り込み、時系列フィルタ）は ROADMAP のアイデアメモに残置
 
+
+---
+## #6 (2026-04-24): Phase 5.1 フック競合バグ修正
+
+### 経緯
+前回 #5 終了後の実体検証で、Phase 5 フック（/end Step 2.5）が Step 2 の並列書き出しと並走し、書き出し完了前に mtime 比較が走って最新セッション分を取りこぼしていたバグを発見。
+
+### 発見の糸口
+- DB indexed_at: 22:18:35
+- HANDOFF.md 実 mtime: 22:18:45（10 秒後） ← DB 記録は 22:05:43 のまま
+- SESSION_HISTORY.md 実 mtime: 22:18:43（8 秒後） ← DB 記録は 21:55:48 のまま
+
+### 修正（C 案 = A + B の二重防衛）
+1. **A**: `scripts/update_index.sh` に `sleep 30` 追加（書き出し完了を待つ）
+2. **B**: `instructions/end_patch.md` を Step 2.5 → Step 2.9 + 並列完了後に走る意味を明示
+3. `_claude-sync/` 側の `update_index.sh` と `commands/end.md` にも反映
+
+### 検証
+- セッション #5 分の取りこぼしは手動 `update_index.sh` で補完（SESSION_HISTORY.md chunks 21→27、file_mtime が実ファイルと一致）
+- 修正版を競合シナリオで再現テスト: バックグラウンド起動 → 1 秒後 DEVLOG.md touch → sleep 30 後に update_index.sh が新 mtime を正しく検出して反映 ✅
+
+### コミット
+- `8e44449` Phase 5.1: /end フックの競合条件を修正（sleep 30 + Step 2.9）
+
+### 本番動作検証
+- 今 /end（セッション #6 終了時）が **修正版フックの初回本番試験**。Step 2.9 のバックグラウンド起動 → sleep 30 → 増分更新 が意図通り動けば、次回セッション開始時に最新状態でインデックスされているはず。
+
+### 残課題
+- 次セッション開始時に DB 状態を確認して本番動作完了を検証
+- Windows 機での全工程検証（Mac 単独試験は完了）
