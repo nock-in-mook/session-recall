@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-24 (Memolette セッション #27 から派生)
+最終更新: 2026-04-24 セッション #2 終了時（Phase 1〜3 完了、MCP まで構築済み）
 
 ---
 
@@ -69,32 +69,51 @@
 
 ## 2. 現状スナップショット
 
-### 2.1 作ったもの（Phase 0 完了）
+### 2.1 作ったもの（Phase 1〜3 完了）
 ```
 _Apps2026/session-recall/
-├── README.md           プロジェクト概要
-├── HANDOFF.md          ← このファイル
-├── ROADMAP.md          Phase 0〜4 の計画
-├── DEVLOG.md           開発ログ
-├── SESSION_HISTORY.md  セッション履歴（#1 まで記入）
-├── SESSION_LOG.md      `/end` 時の書き出し先
-├── skills/recall/
-│   ├── skill.md        /recall スキル定義（未実装）
-│   └── search.sh       検索処理（未実装、exit 1 のプレースホルダ）
+├── README.md                       プロジェクト概要 + ファイル構成 + デプロイ後の配置 + 利用形態
+├── HANDOFF.md                      ← このファイル
+├── ROADMAP.md                      Phase 0〜4 の計画（0〜3 ✅）
+├── DEVLOG.md                       開発ログ（フェーズごとの記録）
+├── SESSION_HISTORY.md              セッション履歴（#1, #2 記入済み）
+├── SESSION_LOG.md                  /end 時の自動書き出し先
+├── .gitignore                      __pycache__/ など
+├── commands/
+│   └── recall.md                   /recall スキル定義（Claude が解釈する）
+├── scripts/
+│   ├── search.sh                   bash 検索（ripgrep 優先、複数キーワード AND、±5 行、上位 10）
+│   ├── server.py                   MCP サーバー本体（mcp 1.27.0、stdio）
+│   └── run_server.sh               MCP サーバー起動 wrapper（venv の python を Mac/Win 両対応で探索）
 ├── instructions/
-│   └── claude_md_patch.md   global CLAUDE.md に追加する指示文（ドラフト）
-└── deploy.sh            本番反映スクリプト（未実装）
+│   └── claude_md_patch.md          v3（MCP tool 優先 → bash search.sh フォールバック → 現プロ grep）
+└── deploy.sh                       8 工程の本番反映（venv 自動セットアップ + jq で settings.local.json 更新）
 ```
 
 ### 2.2 git 状態
-- `main` ブランチで初期コミット済み、GitHub push 済み
-- リポジトリ: https://github.com/nock-in-mook/session-recall
+- `main` ブランチ、GitHub: https://github.com/nock-in-mook/session-recall
+- 主要コミット:
+  - `6527e8b` Phase 0（初期スケルトン）
+  - `9421d5f` Phase 1 完了
+  - `13a7b54` Phase 2 完了
+  - `035537e` Phase 3 完了
 
-### 2.3 claude-mem の現状
+### 2.3 デプロイ後の配置（Phase 1〜3 全部反映済み）
+```
+~/.claude/CLAUDE.md                                  ← v3 ブロック注入済み
+~/.claude/settings.local.json                        ← mcpServers.session-recall 登録済み
+~/.claude/session-recall-venv/                       ← Python venv（PC ローカル）+ mcp 1.27.0 install 済み
+_claude-sync/CLAUDE.md                               ← v3 ブロック注入済み（Win 同期用）
+_claude-sync/commands/recall.md                      ← /recall スキル
+_claude-sync/session-recall/search.sh                ← bash 検索
+_claude-sync/session-recall/server.py                ← MCP サーバー
+_claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
+```
+
+### 2.4 claude-mem の現状
 - **完全撤去済み**（2026-04-24 セッション#27 終了直前に実施）
-- `npm uninstall -g claude-mem` / `~/.claude-mem/` 削除 / `~/.claude/plugins/marketplaces/thedotmack/` 削除 / settings.json の関連エントリ削除
-- バックアップは `~/.claude-backup-pre-claude-mem/` に残置（保険）
-- 副産物の `~/.bun/` は残置（他で使える可能性あり）
+- 詳細手順は §1.7 と Memolette-Flutter/HANDOFF.md:62 参照
+- バックアップは `~/.claude-backup-pre-claude-mem/` に残置
 
 ---
 
@@ -249,16 +268,38 @@ _Apps2026/session-recall/
 
 ---
 
-## 7. 今すぐの次アクション（Phase 1 開始時）
+## 7. 今すぐの次アクション（resume 後 = Phase 4 着手前の検証フェーズ）
 
-順序:
-1. `instructions/claude_md_patch.md` のドラフトをレビュー・修正
-2. 検索対象ファイルを決定（SESSION_HISTORY.md のみ vs HANDOFF 等も含む）
-3. `deploy.sh` の Phase 1 相当を書く（CLAUDE.md への追記マーカー注入）
-4. Mac で `deploy.sh` 実行、`~/.claude/CLAUDE.md` に反映されたか確認
-5. Memolette など別プロジェクトで「前回何してた？」と聞いて検証
-6. 成功なら `_claude-sync/CLAUDE.md` 側にも反映（Windows 展開用）
-7. Phase 1 完了コミット、SESSION_HISTORY 追記
+### Step 1: MCP tool 認識確認
+セッションが復帰したら、まず Claude Code が `session-recall` MCP サーバーを起動して `session_recall_search` ツールを認識しているか確認:
+- システムリマインダーに `mcp__session-recall__session_recall_search` のような tool 名が出てくるはず
+- もし出てこなければ `~/.claude/settings.local.json` の `mcpServers.session-recall.command` のパスを確認
+- venv が壊れていれば `rm -rf ~/.claude/session-recall-venv && bash deploy.sh` で再構築
+
+### Step 2: 自動呼び出しの観察
+- 「前回 Memolette で TODO 結合の件どうしたっけ？」などと尋ねて、Claude が `session_recall_search` を tool として呼ぶか観察
+- 呼ばずに推測で答えたら CLAUDE.md v3 の指示を読み返してフィードバック
+
+### Step 3: 自動呼び出しが安定したら Phase 4 へ
+- 埋め込みモデル選定（`multilingual-e5-small` / `cl-nagoya/sup-simcse-ja-base` 等、CPU で動くサイズ）
+- ベクトル DB: SQLite + `sqlite-vec` 拡張
+- インデックス構築スクリプト（全プロジェクト 3 ファイルを段落分割→埋め込み→DB 保存）
+- 増分更新（`/end` フックで最新追記分だけ）
+- MCP tool `session_recall_semantic` を `session_recall_search` と並列提供
+
+### 補足
+- Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）
+- `bash _claude-sync/session-recall/search.sh "キーワード"` 直叩きは常に動く（Phase 0 から不変）
+
+## 8. Phase 1〜3 で得た教訓（Phase 4 で活かす）
+
+1. **マーカーは行頭限定**: `^<!-- session-recall:` で grep / awk しないと、説明文中の例示も拾って肥大化バグになる
+2. **冪等性は cmp で検証**: 「変更なし」の判定を `cmp -s` でやれば、同じ内容なら出力しない・バックアップも作らない、が成立
+3. **Drive 同期されるもの・されないものを明確に分ける**:
+   - 同期: ロジック本体（search.sh、server.py、run_server.sh、recall.md）
+   - 非同期: Python venv（プラットフォーム依存）、`settings.local.json`（絶対パスが PC ごと）
+4. **subprocess 呼び出しは安全策として有効**: server.py が Python ロジックを再実装する代わりに `bash search.sh` を叩く方式で、二重メンテを避けつつテストの一意性を保てる
+5. **MCP プロトコルの smoke test は手動で十分**: `{ echo INIT; sleep; echo NOTIF; sleep; echo CALL; sleep; } | run_server.sh` で initialize / tools/list / tools/call をシェル一行で検証可能
 
 ---
 
