@@ -54,11 +54,16 @@
 - データ層はもう揃っている。「Claude に横断検索させる手段」だけ足せば claude-mem の価値の大半をカバーできると判断
 - claude-mem と違って **のっくりさんの手動メンテ品質を活かす系**なので、情報密度圧倒的に高い
 
-### 1.7 claude-mem はどうするか
-- **このプロジェクト完成後に撤去**する予定
-- 現在: `~/.claude/settings.json` で `"claude-mem@thedotmack": true` に有効化中
-- バックアップ済: `~/.claude-backup-pre-claude-mem/` に旧 `settings.json` と `plugins/` コピー
-- 完成後: プラグイン無効化 → `~/.claude-mem/` 削除 → `npm uninstall -g claude-mem`
+### 1.7 claude-mem はどうしたか
+- **セッション#27 終了直前に完全撤去済み**（session-recall 完成を待たずに撤去した）
+- 実施した手順:
+  - `npm uninstall -g claude-mem`（グローバル npm パッケージ削除、153 packages）
+  - Worker プロセス kill
+  - `~/.claude-mem/` 削除（DB・設定・ログ全部）
+  - `~/.claude/plugins/marketplaces/thedotmack/` および `~/.claude/plugins/cache/thedotmack/` 削除
+  - `~/.claude/settings.json` の `enabledPlugins.claude-mem@thedotmack` と `extraKnownMarketplaces.thedotmack` 削除
+- バックアップ `~/.claude-backup-pre-claude-mem/` は小さいので保険として残置
+- 副産物の `~/.bun/`（claude-mem が自動導入）は残置、不要なら `rm -rf ~/.bun` で削除可
 
 ---
 
@@ -86,9 +91,10 @@ _Apps2026/session-recall/
 - リポジトリ: https://github.com/nock-in-mook/session-recall
 
 ### 2.3 claude-mem の現状
-- インストール済み・有効化済み
-- Gemini 2.5 Flash 無印にプロバイダ切り替え済み
-- 今はまだ撤去せず、session-recall 完成後にクリーン撤去予定
+- **完全撤去済み**（2026-04-24 セッション#27 終了直前に実施）
+- `npm uninstall -g claude-mem` / `~/.claude-mem/` 削除 / `~/.claude/plugins/marketplaces/thedotmack/` 削除 / settings.json の関連エントリ削除
+- バックアップは `~/.claude-backup-pre-claude-mem/` に残置（保険）
+- 副産物の `~/.bun/` は残置（他で使える可能性あり）
 
 ---
 
