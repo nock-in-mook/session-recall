@@ -85,10 +85,12 @@ _Apps2026/session-recall/
 │   ├── search.sh                   bash キーワード検索（ripgrep 優先、AND、±5 行、上位 10）
 │   ├── server.py                   MCP サーバー (v4): search + semantic 両 tool 提供
 │   ├── run_server.sh               MCP 起動 wrapper（venv の python を Mac/Win 両対応で探索）
-│   └── index_build.py              セマンティック検索 DB 構築（multilingual-e5-small、Markdown 見出し分割）
+│   ├── index_build.py              セマンティック検索 DB 構築（multilingual-e5-small、Markdown 見出し分割）
+│   └── update_index.sh             /end フック用 wrapper（バックグラウンドで増分更新）
 ├── instructions/
-│   └── claude_md_patch.md          v4（search/semantic の使い分け、現プロ grep フォールバック）
-└── deploy.sh                       11 工程の本番反映（Phase 1〜4 全自動化、初回 index 構築まで）
+│   ├── claude_md_patch.md          v4（search/semantic の使い分け、現プロ grep フォールバック）
+│   └── end_patch.md                /end スキル (end.md) 注入用パッチ（Step 2.5: 自動増分更新）
+└── deploy.sh                       13 工程の本番反映（Phase 1〜5 全自動化、/end フック注入まで）
 ```
 
 ### 2.2 git 状態
@@ -111,6 +113,8 @@ _claude-sync/session-recall/search.sh                ← bash キーワード検
 _claude-sync/session-recall/server.py                ← MCP サーバー (v4: search + semantic)
 _claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
 _claude-sync/session-recall/index_build.py           ← インデックス構築スクリプト
+_claude-sync/session-recall/update_index.sh          ← /end フック用 wrapper
+_claude-sync/commands/end.md                         ← session-recall:end-hook ブロック注入済み（Step 2.5）
 ```
 
 注:

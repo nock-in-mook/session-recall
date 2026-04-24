@@ -199,3 +199,35 @@
 - `/end` スキル拡張で `python index_build.py` の自動実行を組み込む
 - Windows 機での全工程動作確認（py -3.14 経路、PyTorch インストール、sqlite-vec ロード）
 - Phase 5 アイデア: プロジェクト絞り込み、時系列フィルタ、ハイブリッド検索（keyword + semantic re-rank）
+
+## 2026-04-24: Phase 5 完了（/end フックで増分インデックス自動更新）
+
+### 設計
+- `_claude-sync/commands/end.md` に Step 2.5 を末尾追記する形（既存 Step 1〜3 を破壊しない）
+- マーカーは `<!-- session-recall:end-hook:begin v1 -->` ... `:end v1 -->`（CLAUDE.md とは別系統、行頭一致）
+- `update_index.sh` は `nohup ... &` でバックグラウンド起動 → /end の終了を遅らせない
+- DB 未存在・venv 未セットアップなら `update_index.sh` 内でサイレント exit 0（初回 deploy 前は何もしない）
+
+### 実装
+- `scripts/update_index.sh`: venv の python を Mac/Win 両対応で探索、`index_build.py --quiet` を呼ぶ薄い wrapper
+- `instructions/end_patch.md`: end.md 注入用の Step 2.5 ブロック（バックグラウンド起動コマンド + Mac/Win 両対応 path 探索）
+- `deploy.sh` を 13 工程に拡張:
+  - 定数: `UPDATE_INDEX_SH`, `END_PATCH_FILE`
+  - 関数: `extract_end_hook_block()`, `inject_end_hook()`（既存 `extract_block` / `inject_into` の end-hook 版）
+  - メイン処理: Phase 5 セクション追加（[12/13] update_index.sh 配置、[13/13] end.md 注入）
+
+### 動作確認
+- `update_index.sh` 単体実行 → exit 0、15 秒（モデルロード + 変更ファイルの再埋め込み）
+- `deploy.sh` 1 回目: end.md に末尾追記、バックアップ作成
+- `deploy.sh` 2 回目: 全 13 工程「変更なし」（冪等性 OK、update_index.sh / end.md 共に再注入なし）
+- 注入後の end.md 末尾に Step 2.5 ブロックが正しく挿入されてることを確認
+
+### 設計判断
+- end.md は別チームの「グローバル設定」だが、マーカー方式で既存内容を破壊せず追記できる
+- 増分更新は変更ファイルがあるときだけ動くので、毎 /end で 0〜数十秒のオーバーヘッド
+- バックグラウンド起動なので /end 体感は変わらない
+- update_index.sh は CLAUDE.md ルールに従って失敗無視（exit 0）
+
+### 残課題
+- 別 PC（Windows 含む）での全 13 工程動作確認
+- /end が実際に呼ばれた際に update_index.sh が起動するか実体検証（次回 /end で確認可能）

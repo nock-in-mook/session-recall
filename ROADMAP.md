@@ -89,9 +89,19 @@
 - 新 PC では `bash deploy.sh` 一発で index_build まで自動実行（モデル DL 含めて 1〜数分）
 
 ### 残課題（次セッション以降）
-- 実 Claude Code から `mcp__session-recall__session_recall_semantic` 呼び出しの実体検証（resume 後）
-- `/end` スキル拡張で増分インデックス更新の自動化
 - Windows 機での venv + sentence-transformers + sqlite-vec 動作確認
+
+## Phase 5: /end フックで増分インデックス自動更新 ✅
+セッション終了時に最新追記分を自動で DB 反映する。
+
+- [x] `scripts/update_index.sh`: venv の python で `index_build.py` を呼ぶ薄い wrapper（DB / venv 未存在ならサイレントスキップ）
+- [x] `instructions/end_patch.md`: `_claude-sync/commands/end.md` に注入する Step 2.5 ブロック（マーカー `<!-- session-recall:end-hook:begin/end -->`）
+- [x] `deploy.sh` を 13 工程に拡張: `extract_end_hook_block()` + `inject_end_hook()` 関数追加
+- [x] 注入された end.md は `nohup bash update_index.sh >/dev/null 2>&1 &` でバックグラウンド起動 → /end の終了をブロックしない
+
+### 動作確認
+- `update_index.sh` 単体実行で increment update 成功（exit 0、15 秒）
+- `inject_end_hook` で end.md 末尾追記、冪等性 OK
 
 ## アイデアメモ
 - `/recall-proj <プロジェクト名> <キーワード>` で特定プロジェクトに限定検索

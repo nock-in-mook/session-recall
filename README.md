@@ -53,10 +53,12 @@ session-recall/
 │   ├── search.sh                   bash 実処理（複数キーワード AND、ripgrep 優先）
 │   ├── server.py                   MCP サーバー本体（mcp 1.27 + sqlite-vec + sentence-transformers）
 │   ├── run_server.sh               MCP サーバー起動 wrapper
-│   └── index_build.py              セマンティック検索インデックス構築（multilingual-e5-small）
+│   ├── index_build.py              セマンティック検索インデックス構築（multilingual-e5-small）
+│   └── update_index.sh             /end フック用 wrapper（バックグラウンド増分更新）
 ├── instructions/
-│   └── claude_md_patch.md          global CLAUDE.md に追加する指示文（v3）
-└── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等、8 工程）
+│   ├── claude_md_patch.md          global CLAUDE.md に追加する指示文（v4）
+│   └── end_patch.md                /end スキル (end.md) 注入用パッチ（Step 2.5）
+└── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等、13 工程）
 ```
 
 ## デプロイ後の配置

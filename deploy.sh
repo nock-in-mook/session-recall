@@ -7,6 +7,8 @@
 #             + claude mcp add で session-recall を user scope に登録
 #  - Phase 4: 埋め込みライブラリ install + scripts/index_build.py 配置
 #             + ~/.claude/session-recall-index.db が無ければ初回構築
+#  - Phase 5: scripts/update_index.sh 配置 + _claude-sync/commands/end.md に
+#             session-recall:end-hook ブロックを注入（/end 時に増分自動更新）
 # 全工程冪等（差分なしならバックアップも作らない）。
 
 set -euo pipefail
@@ -19,6 +21,8 @@ SEARCH_SH="$SELF_DIR/scripts/search.sh"
 SERVER_PY="$SELF_DIR/scripts/server.py"
 RUN_SERVER_SH="$SELF_DIR/scripts/run_server.sh"
 INDEX_BUILD_PY="$SELF_DIR/scripts/index_build.py"
+UPDATE_INDEX_SH="$SELF_DIR/scripts/update_index.sh"
+END_PATCH_FILE="$SELF_DIR/instructions/end_patch.md"
 VENV_DIR="$CLAUDE_HOME/session-recall-venv"
 INDEX_DB="$CLAUDE_HOME/session-recall-index.db"
 
@@ -228,6 +232,79 @@ build_index_if_missing() {
     "$venv_py" "$INDEX_BUILD_PY" --db "$INDEX_DB"
 }
 
+# end_patch.md からマーカー間ブロックを抽出（行頭一致）
+extract_end_hook_block() {
+    awk '
+        /^<!-- session-recall:end-hook:begin/ { p=1 }
+        p { print }
+        /^<!-- session-recall:end-hook:end/   { p=0 }
+    ' "$END_PATCH_FILE"
+}
+
+# end.md にマーカー間ブロックを注入（冪等、CLAUDE.md と同じ要領）
+inject_end_hook() {
+    local target="$1"
+
+    if [ ! -f "$target" ]; then
+        echo "  $target が存在しないためスキップ（先に他の deploy 系を整えてください）" >&2
+        return 0
+    fi
+
+    local block_file
+    block_file="$(mktemp)"
+    extract_end_hook_block > "$block_file"
+
+    if [ ! -s "$block_file" ]; then
+        echo "  エラー: $END_PATCH_FILE からマーカー間が抽出できませんでした" >&2
+        rm -f "$block_file"
+        return 1
+    fi
+
+    local tmp
+    tmp="$(mktemp)"
+    local mode
+
+    if grep -q "^<!-- session-recall:end-hook:begin" "$target"; then
+        awk -v blockfile="$block_file" '
+            BEGIN {
+                while ((getline line < blockfile) > 0) {
+                    block = block line "\n"
+                }
+                close(blockfile)
+            }
+            /^<!-- session-recall:end-hook:begin/ {
+                printf "%s", block
+                skip = 1
+                next
+            }
+            /^<!-- session-recall:end-hook:end/ {
+                skip = 0
+                next
+            }
+            !skip { print }
+        ' "$target" > "$tmp"
+        mode="マーカー間置換"
+    else
+        cat "$target" > "$tmp"
+        printf '\n\n' >> "$tmp"
+        cat "$block_file" >> "$tmp"
+        mode="末尾追記"
+    fi
+
+    if cmp -s "$target" "$tmp"; then
+        echo "  $target → 変更なし"
+        rm -f "$tmp" "$block_file"
+        return 0
+    fi
+
+    local backup="${target}.bak.$(date +%Y%m%d_%H%M%S)"
+    cp "$target" "$backup"
+    mv "$tmp" "$target"
+    echo "  $target → $mode で更新"
+    echo "    バックアップ: $backup"
+    rm -f "$block_file"
+}
+
 # MCP サーバー登録（Claude Code 2.x 以降は `claude mcp add` 経由が正規）
 # 注: 当初 settings.local.json の mcpServers キーに書き込んでいたが、
 #     Claude Code 2.x はそれを読まないため、claude mcp add --scope user に統一。
@@ -262,76 +339,92 @@ register_mcp_server() {
 
 # === Phase 1: CLAUDE.md 注入 ===
 echo "─── Phase 1: CLAUDE.md 注入 ───"
-echo "[1/11] $CLAUDE_HOME/CLAUDE.md"
+echo "[1/13] $CLAUDE_HOME/CLAUDE.md"
 inject_into "$CLAUDE_HOME/CLAUDE.md"
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[2/11] $SYNC_DIR/CLAUDE.md"
+    echo "[2/13] $SYNC_DIR/CLAUDE.md"
     inject_into "$SYNC_DIR/CLAUDE.md"
 else
-    echo "[2/11] _claude-sync 未検出のためスキップ"
+    echo "[2/13] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 2: スキル & 検索スクリプト配置 ===
 echo "─── Phase 2: スキル & 検索スクリプト配置 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[3/11] $SYNC_DIR/commands/recall.md"
+    echo "[3/13] $SYNC_DIR/commands/recall.md"
     sync_file "$RECALL_MD" "$SYNC_DIR/commands/recall.md"
     echo ""
 
-    echo "[4/11] $SYNC_DIR/session-recall/search.sh"
+    echo "[4/13] $SYNC_DIR/session-recall/search.sh"
     sync_file "$SEARCH_SH" "$SYNC_DIR/session-recall/search.sh"
     chmod +x "$SYNC_DIR/session-recall/search.sh"
 else
-    echo "[3/11] _claude-sync 未検出のためスキップ"
-    echo "[4/11] _claude-sync 未検出のためスキップ"
+    echo "[3/13] _claude-sync 未検出のためスキップ"
+    echo "[4/13] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 3: MCP サーバー (キーワード検索) ===
 echo "─── Phase 3: MCP サーバー (キーワード検索) ───"
-echo "[5/11] venv セットアップ + mcp パッケージ ($VENV_DIR)"
+echo "[5/13] venv セットアップ + mcp パッケージ ($VENV_DIR)"
 setup_venv
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[6/11] $SYNC_DIR/session-recall/server.py"
+    echo "[6/13] $SYNC_DIR/session-recall/server.py"
     sync_file "$SERVER_PY" "$SYNC_DIR/session-recall/server.py"
     echo ""
 
-    echo "[7/11] $SYNC_DIR/session-recall/run_server.sh"
+    echo "[7/13] $SYNC_DIR/session-recall/run_server.sh"
     sync_file "$RUN_SERVER_SH" "$SYNC_DIR/session-recall/run_server.sh"
     chmod +x "$SYNC_DIR/session-recall/run_server.sh"
     echo ""
 
-    echo "[8/11] MCP server 登録 (claude mcp add --scope user)"
+    echo "[8/13] MCP server 登録 (claude mcp add --scope user)"
     register_mcp_server
 else
-    echo "[6/11] _claude-sync 未検出のためスキップ"
-    echo "[7/11] _claude-sync 未検出のためスキップ"
-    echo "[8/11] _claude-sync 未検出のためスキップ"
+    echo "[6/13] _claude-sync 未検出のためスキップ"
+    echo "[7/13] _claude-sync 未検出のためスキップ"
+    echo "[8/13] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 4: セマンティック検索 ===
 echo "─── Phase 4: セマンティック検索（埋め込み + ベクトル DB）───"
-echo "[9/11] sentence-transformers + sqlite-vec を venv に追加"
+echo "[9/13] sentence-transformers + sqlite-vec を venv に追加"
 setup_venv_phase4
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[10/11] $SYNC_DIR/session-recall/index_build.py"
+    echo "[10/13] $SYNC_DIR/session-recall/index_build.py"
     sync_file "$INDEX_BUILD_PY" "$SYNC_DIR/session-recall/index_build.py"
     chmod +x "$SYNC_DIR/session-recall/index_build.py"
 else
-    echo "[10/11] _claude-sync 未検出のためスキップ"
+    echo "[10/13] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
-echo "[11/11] index DB 構築 (PC ローカル: $INDEX_DB)"
+echo "[11/13] index DB 構築 (PC ローカル: $INDEX_DB)"
 build_index_if_missing
+echo ""
+
+# === Phase 5: /end フック（増分インデックス自動更新）===
+echo "─── Phase 5: /end フック（増分インデックス自動更新）───"
+if [ -n "$SYNC_DIR" ]; then
+    echo "[12/13] $SYNC_DIR/session-recall/update_index.sh"
+    sync_file "$UPDATE_INDEX_SH" "$SYNC_DIR/session-recall/update_index.sh"
+    chmod +x "$SYNC_DIR/session-recall/update_index.sh"
+    echo ""
+
+    echo "[13/13] $SYNC_DIR/commands/end.md (session-recall:end-hook ブロック注入)"
+    inject_end_hook "$SYNC_DIR/commands/end.md"
+else
+    echo "[12/13] _claude-sync 未検出のためスキップ"
+    echo "[13/13] _claude-sync 未検出のためスキップ"
+fi
 echo ""
 
 echo "deploy 完了。"
