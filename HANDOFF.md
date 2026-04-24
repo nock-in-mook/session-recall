@@ -284,31 +284,33 @@ _claude-sync/commands/end.md                         ← session-recall:end-hook
 
 ---
 
-## 7. 今すぐの次アクション（resume 後 = Phase 6 完了後の完成版観察）
+## 7. 今すぐの次アクション（Phase 5.2 完了後 — 開始時フック実体観察へ）
 
-### Step 1: MCP tool の認識確認
-resume したら最初のシステムリマインダーで両 deferred tool が見えるはず:
-- `mcp__session-recall__session_recall_search`（キーワード AND、project optional）
-- `mcp__session-recall__session_recall_semantic`（意味検索、project optional）
+### Step 1: MCP tool の認識確認（resume 後）
+システムリマインダーで両 deferred tool:
+- `mcp__session-recall__session_recall_search`（project optional）
+- `mcp__session-recall__session_recall_semantic`（project optional）
 
-### Step 2: 完成版挙動の観察（最重要）
-Phase 6 で両 tool に `project` optional 引数を追加した。自動挙動を普段の会話で観察:
-1. **プロジェクト名が発言に出た時の自動絞り込み**:
-   「Memolette の ToDo 結合どうなった？」「Kanji_Stroke の同期問題どうだっけ？」等の発言で、Claude が自動的に `project` 引数を付けて検索するか
-2. **曖昧クエリの場合**: 「あのパフォーマンスで悩んだ件」→ semantic 自動選択 + 適切な project 判断
-3. **現プロジェクト限定の意図**: cwd が特定プロジェクトで「過去どうしてたっけ」→ `project=現プロジェクト名` で絞り込むか
-4. サボり気配を感じたら「DB 見て」「過去調べて」と一言促せば発火する（ユーザーへのガイダンス済）
+### Step 2: Phase 5.2 実体観察（最重要、#8 で追加）
+セッション #8 で Phase 5.2 を追加（セッション開始時の DB 自動追いつき）。CLAUDE.md v6 の指示で、セッション開始時に Step 0 と並列で `nohup bash update_index.sh 0 &` が走るはず。
+1. 新セッション開始直後に `~/.claude/session-recall-index.db` の indexed_at が更新されるか
+2. 別 PC で `/end` 済みの最新追記が、このセッション内で即時検索ヒットするか
+3. Claude が start-hook を発火した会話ログに痕跡があるか
 
-### Step 3: Phase 5.1 フック継続観察
-セッション #6 終了時の 1 回だけ検証完了（Phase 7 開始時に実体確認済）。今セッション #7 終了時が 2 回目の本番稼働。次回開始時に DB の indexed_at が #7 終了時刻より後か、file_mtime が実ファイルと一致するかを確認すれば安定性評価できる。
+### Step 3: Phase 6 完成版挙動の継続観察
+- プロジェクト名が発言に出た時の自動 `project` 絞り込み
+- 曖昧クエリで `session_recall_semantic` の自動選択 + 適切な project 判断
+- #8 の Mac A / Mac B 実地検証で正常動作確認済み（「Memolette のトレー」で #002〜#003、「取っ手部分」で #005 TrapezoidTabClipper を要約提示）
 
 ### Step 4: 残課題
 1. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動、`bash deploy.sh` 1 発で全 13 工程完走するか
+   - #8 の Mac B 初回 deploy は 90 秒で完走（全 13 工程 exit 0、4297 chunks、DB 13.4 MB）、Windows も同様に通る想定だが実体未確認
 2. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
 
 ### 補足
 - Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）
 - `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く（Phase 6 以降）
+- **PC 間等価性実証**（#8）: Mac A ↔ Mac B の双方で同じ検索結果が出ることを確認（`claude --resume` + `~/.claude/projects/` symlink 同期 + 各 PC の DB 整合性の三点セットが機能）
 
 ## 8. Phase 1〜3 で得た教訓（Phase 4 で活かす）
 

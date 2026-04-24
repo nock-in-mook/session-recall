@@ -209,3 +209,49 @@ bash 3.2（macOS default）で `set -u` 下の空配列 `"${A[@]}"` が unbound 
 - Claude Code 再起動後、新 MCP server v6.0.0 が有効化される
 - 「Memolette の○○」のような発言で自動的に project 引数付き検索が走るか
 - Phase 5.1 フック継続動作（2 回目の本番稼働）
+
+---
+## #8 (2026-04-25) resume 試験 + Mac B deploy + Phase 5.2 実装
+
+### Mac A 側での Phase 6 完成版挙動の実地検証
+- 「Memolette のトレー実装で苦労した話したいな」に対し `session_recall_search(["Memolette","トレー"])` と `session_recall_semantic` を並列発火 → Memolette-Flutter/SESSION_HISTORY #002 (ルーレットUI再現) / #003 (トレースライド実装) をヒットさせて要約提示 ✅
+- 特定プロジェクト名が会話に出たら自動で `project` 引数を付ける挙動も確認 ✅
+
+### Mac A → Mac B への `claude --resume` 試験
+- 一度は Claude が「resume は PC ローカルなので無理」と誤答 → ユーザー指摘 → `~/.claude/` の実機確認で `commands / memory / projects / settings.json` が全て `_claude-sync/` への symlink であることを発見
+- つまり Claude Code のセッション履歴 jsonl も PC 間共有されている = **別 PC で `claude --resume` で同セッションを続けられる**
+- 実際に Mac A で `/exit` → Mac B（KYO-YaguchinoMacBook-Air）で `claude --resume` → 同セッションに復帰成功 ✅
+
+### Mac B 初回 deploy
+- Mac B は完全未 deploy（`venv` / `index.db` / `~/.claude.json.mcpServers` すべてなし）を確認
+- `bash deploy.sh` 1 発実行 → 全 13 工程 exit 0、**トータル約 90 秒で完走**
+  - venv 作成（`/opt/homebrew/bin/python3.12`）+ mcp/sentence-transformers/sqlite-vec/PyTorch インストール
+  - index DB 初回構築（64 ファイル、4297 chunks、処理時間 72.9 秒、DB 13.4 MB）
+  - MCP server を `claude mcp add --scope user` で登録
+- Claude Code 再起動後、resume で戻ったセッションでシステムリマインダーに MCP deferred tools 再出現
+- Mac B で「トレーの取っ手部分の実装は苦労したよね」に対して自動検索発火 → Memolette-Flutter/SESSION_HISTORY #005 の `TrapezoidTabClipper/Painter`（Swift `addArc(tangent1:tangent2:radius:)` を tan/sin/atan2 で再現）の記憶を要約提示 ✅ = PC 間完全等価
+
+### Phase 5.2 実装（セッション開始時の DB 自動追いつき）
+**動機**: PC 間 DB 更新タイミングのズレ。`/end` は各 PC ローカル DB を更新するだけなので、別 PC で書かれた最新 SESSION_HISTORY は自機で次の /end まで反映されない = 1 セッション分の検索盲点が残る。
+
+**実装**:
+- `scripts/update_index.sh`: `sleep 30` を引数化（`sleep "${1:-30}"`）。デフォルトは /end 用 30 秒、start 用途は `0` を渡す
+- `instructions/claude_md_patch.md` v6: 「セッション開始時の DB 自動追いつき（必ず実行）」セクション追加。Step 0 と並列で `nohup bash update_index.sh 0 &` を実行する bash ブロックを明示
+- deploy.sh 実行で両 CLAUDE.md に v6 注入、update_index.sh の引数化を Drive 同期（deploy.sh 自体は変更不要、既存工程でカバー）
+
+**動作確認**: `time bash update_index.sh 0` = 8.5 秒（純粋な venv 起動 + mtime 比較コスト、sleep 30 なら 38 秒超になる）
+
+**設計判断**:
+- 引数化方式（別スクリプト化せず）で既存 end-hook の後方互換を維持
+- /end 側は引数なし呼び出しなのでデフォルト 30 秒が効く
+- Phase 番号は 5.2（終了時と対称な開始時フック、Phase 5 系列）
+
+### コミット
+- `88896b0` Phase 5.2: セッション開始時のインデックス自動追いつき
+- `d6503a4` scripts/update_index.sh の実行ビット復元（Edit tool 副作用）
+
+### 次セッションで観察する点
+- Step 0 と並列で Claude が `nohup bash update_index.sh 0 &` を自動発火するか
+- 発火すれば `~/.claude/session-recall-index.db` の indexed_at がセッション開始直後（±10 秒以内）に更新される
+- 今この #8 の SESSION_HISTORY 追記が、次セッション冒頭で search / semantic ヒット対象になっていれば Phase 5.2 完全動作の証拠
+- Windows 機 deploy は継続して残課題
