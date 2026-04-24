@@ -3,8 +3,10 @@
 #  - Phase 1: instructions/claude_md_patch.md のマーカー間ブロックを
 #             ~/.claude/CLAUDE.md と _claude-sync/CLAUDE.md に注入
 #  - Phase 2: commands/recall.md と scripts/search.sh を _claude-sync 経由で配置
-#  - Phase 3: Python venv セットアップ + scripts/server.py & run_server.sh 配置
-#             + ~/.claude/settings.local.json に MCP サーバー登録
+#  - Phase 3: Python venv セットアップ + scripts/{server.py, run_server.sh} 配置
+#             + claude mcp add で session-recall を user scope に登録
+#  - Phase 4: 埋め込みライブラリ install + scripts/index_build.py 配置
+#             + ~/.claude/session-recall-index.db が無ければ初回構築
 # 全工程冪等（差分なしならバックアップも作らない）。
 
 set -euo pipefail
@@ -16,7 +18,9 @@ RECALL_MD="$SELF_DIR/commands/recall.md"
 SEARCH_SH="$SELF_DIR/scripts/search.sh"
 SERVER_PY="$SELF_DIR/scripts/server.py"
 RUN_SERVER_SH="$SELF_DIR/scripts/run_server.sh"
+INDEX_BUILD_PY="$SELF_DIR/scripts/index_build.py"
 VENV_DIR="$CLAUDE_HOME/session-recall-venv"
+INDEX_DB="$CLAUDE_HOME/session-recall-index.db"
 
 # _claude-sync の場所（Mac/Win 両対応）
 SYNC_DIR=""
@@ -140,10 +144,16 @@ sync_file() {
     echo "  $dst → 更新"
 }
 
-# Python venv セットアップ（PC ローカル、Drive 同期しない）
-# venv に mcp パッケージをインストール
+# venv の python を返す（Mac は bin/、Win Git Bash は Scripts/）
+venv_python() {
+    for p in "$VENV_DIR/bin/python" "$VENV_DIR/Scripts/python" "$VENV_DIR/Scripts/python.exe"; do
+        [ -x "$p" ] && echo "$p" && return 0
+    done
+    return 1
+}
+
+# Python venv セットアップ + mcp パッケージ install（PC ローカル、Drive 同期しない）
 setup_venv() {
-    # Python 3.10+ を探す（Mac: Homebrew python3.12、Win: py -3.14）
     local py_cmd=""
     if command -v py >/dev/null 2>&1 && py -3.14 --version >/dev/null 2>&1; then
         py_cmd="py -3.14"
@@ -174,18 +184,9 @@ setup_venv() {
         echo "  venv 既存: $VENV_DIR"
     fi
 
-    # venv 内の python を特定
-    local venv_py=""
-    for p in "$VENV_DIR/bin/python" "$VENV_DIR/Scripts/python" "$VENV_DIR/Scripts/python.exe"; do
-        [ -x "$p" ] && venv_py="$p" && break
-    done
+    local venv_py
+    venv_py="$(venv_python)" || { echo "  エラー: venv の python が見つかりません" >&2; return 1; }
 
-    if [ -z "$venv_py" ]; then
-        echo "  エラー: venv の python が見つかりません" >&2
-        return 1
-    fi
-
-    # mcp パッケージ確認・インストール
     if "$venv_py" -c "import mcp" >/dev/null 2>&1; then
         echo "  mcp パッケージ: 既にインストール済み"
     else
@@ -194,6 +195,37 @@ setup_venv() {
         "$venv_py" -m pip install --quiet mcp
         echo "  mcp パッケージ: インストール完了"
     fi
+}
+
+# Phase 4 用: 埋め込みライブラリ install
+setup_venv_phase4() {
+    local venv_py
+    venv_py="$(venv_python)" || { echo "  venv 未セットアップ"; return 1; }
+
+    if "$venv_py" -c "import sentence_transformers, sqlite_vec" >/dev/null 2>&1; then
+        echo "  sentence-transformers + sqlite-vec: 既にインストール済み"
+    else
+        echo "  sentence-transformers + sqlite-vec をインストール中（PyTorch 含む、数分かかる）..."
+        "$venv_py" -m pip install --quiet sentence-transformers sqlite-vec
+        echo "  完了"
+    fi
+}
+
+# 初回 index 構築（DB が無ければ実行、あればスキップ）
+build_index_if_missing() {
+    if [ -f "$INDEX_DB" ]; then
+        local size_mb
+        size_mb=$(du -m "$INDEX_DB" 2>/dev/null | awk '{print $1}')
+        echo "  index DB 既存: $INDEX_DB (${size_mb} MB)"
+        echo "  増分更新は別途 'python index_build.py' を手動実行（または /end フック）"
+        return 0
+    fi
+
+    local venv_py
+    venv_py="$(venv_python)" || { echo "  venv 未セットアップ"; return 1; }
+
+    echo "  index DB 初回構築中（モデル DL ~470MB + 全プロジェクト埋め込み、数分かかる）..."
+    "$venv_py" "$INDEX_BUILD_PY" --db "$INDEX_DB"
 }
 
 # MCP サーバー登録（Claude Code 2.x 以降は `claude mcp add` 経由が正規）
@@ -219,72 +251,92 @@ register_mcp_server() {
         return 1
     fi
 
-    # 既に登録済みかチェック
     if claude mcp list 2>/dev/null | grep -qE "^session-recall:"; then
         echo "  session-recall MCP server: 登録済み"
         return 0
     fi
 
-    # claude mcp add で user scope に登録（~/.claude.json に書かれる）
     echo "  claude mcp add --scope user session-recall <run_server.sh>"
     claude mcp add --scope user session-recall "$run_server" 2>&1 | sed 's/^/    /'
 }
 
 # === Phase 1: CLAUDE.md 注入 ===
 echo "─── Phase 1: CLAUDE.md 注入 ───"
-echo "[1/8] $CLAUDE_HOME/CLAUDE.md"
+echo "[1/11] $CLAUDE_HOME/CLAUDE.md"
 inject_into "$CLAUDE_HOME/CLAUDE.md"
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[2/8] $SYNC_DIR/CLAUDE.md"
+    echo "[2/11] $SYNC_DIR/CLAUDE.md"
     inject_into "$SYNC_DIR/CLAUDE.md"
 else
-    echo "[2/8] _claude-sync 未検出のためスキップ"
+    echo "[2/11] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
-# === Phase 2: スキル & スクリプト配置 ===
+# === Phase 2: スキル & 検索スクリプト配置 ===
 echo "─── Phase 2: スキル & 検索スクリプト配置 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[3/8] $SYNC_DIR/commands/recall.md"
+    echo "[3/11] $SYNC_DIR/commands/recall.md"
     sync_file "$RECALL_MD" "$SYNC_DIR/commands/recall.md"
     echo ""
 
-    echo "[4/8] $SYNC_DIR/session-recall/search.sh"
+    echo "[4/11] $SYNC_DIR/session-recall/search.sh"
     sync_file "$SEARCH_SH" "$SYNC_DIR/session-recall/search.sh"
     chmod +x "$SYNC_DIR/session-recall/search.sh"
 else
-    echo "[3/8] _claude-sync 未検出のためスキップ"
-    echo "[4/8] _claude-sync 未検出のためスキップ"
+    echo "[3/11] _claude-sync 未検出のためスキップ"
+    echo "[4/11] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
-# === Phase 3: MCP サーバー配置 + venv + 登録 ===
-echo "─── Phase 3: MCP サーバー ───"
-echo "[5/8] venv セットアップ ($VENV_DIR)"
+# === Phase 3: MCP サーバー (キーワード検索) ===
+echo "─── Phase 3: MCP サーバー (キーワード検索) ───"
+echo "[5/11] venv セットアップ + mcp パッケージ ($VENV_DIR)"
 setup_venv
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[6/8] $SYNC_DIR/session-recall/server.py"
+    echo "[6/11] $SYNC_DIR/session-recall/server.py"
     sync_file "$SERVER_PY" "$SYNC_DIR/session-recall/server.py"
     echo ""
 
-    echo "[7/8] $SYNC_DIR/session-recall/run_server.sh"
+    echo "[7/11] $SYNC_DIR/session-recall/run_server.sh"
     sync_file "$RUN_SERVER_SH" "$SYNC_DIR/session-recall/run_server.sh"
     chmod +x "$SYNC_DIR/session-recall/run_server.sh"
     echo ""
 
-    echo "[8/8] MCP server 登録 (claude mcp add --scope user)"
+    echo "[8/11] MCP server 登録 (claude mcp add --scope user)"
     register_mcp_server
 else
-    echo "[6/8] _claude-sync 未検出のためスキップ"
-    echo "[7/8] _claude-sync 未検出のためスキップ"
-    echo "[8/8] _claude-sync 未検出のためスキップ"
+    echo "[6/11] _claude-sync 未検出のためスキップ"
+    echo "[7/11] _claude-sync 未検出のためスキップ"
+    echo "[8/11] _claude-sync 未検出のためスキップ"
 fi
-
 echo ""
+
+# === Phase 4: セマンティック検索 ===
+echo "─── Phase 4: セマンティック検索（埋め込み + ベクトル DB）───"
+echo "[9/11] sentence-transformers + sqlite-vec を venv に追加"
+setup_venv_phase4
+echo ""
+
+if [ -n "$SYNC_DIR" ]; then
+    echo "[10/11] $SYNC_DIR/session-recall/index_build.py"
+    sync_file "$INDEX_BUILD_PY" "$SYNC_DIR/session-recall/index_build.py"
+    chmod +x "$SYNC_DIR/session-recall/index_build.py"
+else
+    echo "[10/11] _claude-sync 未検出のためスキップ"
+fi
+echo ""
+
+echo "[11/11] index DB 構築 (PC ローカル: $INDEX_DB)"
+build_index_if_missing
+echo ""
+
 echo "deploy 完了。"
 echo ""
-echo "ヒント: MCP サーバーを Claude Code で有効化するには Claude Code の再起動が必要です。"
+echo "ヒント:"
+echo "  - MCP サーバーを Claude Code で有効化するには Claude Code の再起動が必要"
+echo "  - 増分インデックス更新は手動で:  ~/.claude/session-recall-venv/bin/python $INDEX_BUILD_PY"
+echo "  - 全再構築は: ~/.claude/session-recall-venv/bin/python $INDEX_BUILD_PY --force"

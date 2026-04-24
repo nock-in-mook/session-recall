@@ -51,8 +51,9 @@ session-recall/
 │   └── recall.md                   /recall スキル定義（Claude が解釈する）
 ├── scripts/
 │   ├── search.sh                   bash 実処理（複数キーワード AND、ripgrep 優先）
-│   ├── server.py                   MCP サーバー本体（Python 3.10+、mcp パッケージ）
-│   └── run_server.sh               MCP サーバー起動 wrapper
+│   ├── server.py                   MCP サーバー本体（mcp 1.27 + sqlite-vec + sentence-transformers）
+│   ├── run_server.sh               MCP サーバー起動 wrapper
+│   └── index_build.py              セマンティック検索インデックス構築（multilingual-e5-small）
 ├── instructions/
 │   └── claude_md_patch.md          global CLAUDE.md に追加する指示文（v3）
 └── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等、8 工程）
@@ -64,21 +65,25 @@ session-recall/
 
 ```
 ~/.claude/CLAUDE.md                                       ← マーカー間ブロック注入
-~/.claude/settings.local.json                             ← MCP サーバー登録（mcpServers.session-recall）
+~/.claude.json                                            ← MCP server 登録（claude mcp add --scope user）
 ~/.claude/session-recall-venv/                            ← Python venv（PC ローカル、Drive 同期しない）
+~/.claude/session-recall-index.db                         ← セマンティック検索ベクトル DB（PC ローカル）
 _claude-sync/CLAUDE.md                                    ← マーカー間ブロック注入（Win 同期用）
 _claude-sync/commands/recall.md                           ← /recall スキル
 _claude-sync/session-recall/search.sh                     ← bash 検索スクリプト
 _claude-sync/session-recall/server.py                     ← MCP サーバー
 _claude-sync/session-recall/run_server.sh                 ← MCP サーバー起動 wrapper
+_claude-sync/session-recall/index_build.py                ← インデックス構築スクリプト
 ```
 
 冪等性あり: 差分なしならバックアップも作らない。再 deploy で v1 → v2 → v3 などのバージョン置換も自動。
 
 ## 利用形態
 
-| 利用方法 | 手段 |
-|---|---|
-| Claude が自動的に検索（推奨） | MCP tool `session_recall_search` を Claude が呼ぶ（要 Claude Code 再起動） |
-| ユーザーが明示的に検索 | `/recall <キーワード>` スラッシュコマンド |
-| シェルで直接検索 | `bash _claude-sync/session-recall/search.sh <キーワード>` |
+| 利用方法 | 手段 | 用途 |
+|---|---|---|
+| Claude がキーワード検索（推奨） | MCP tool `session_recall_search` | キーワードが明確なとき |
+| Claude が意味検索（推奨） | MCP tool `session_recall_semantic` | 曖昧クエリ・概念検索 |
+| ユーザーが明示検索 | `/recall <キーワード>` スラッシュコマンド | キーワード AND 検索 |
+| シェル直接 | `bash _claude-sync/session-recall/search.sh <キーワード>` | スクリプトから |
+| インデックス更新 | `python ~/.claude/session-recall-venv/bin/python <session-recall>/scripts/index_build.py` | mtime ベース増分更新（手動） |

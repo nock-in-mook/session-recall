@@ -67,20 +67,31 @@
 - 旧形式の `settings.local.json.mcpServers` キーは自動削除するクリーンアップも追加
 - `claude mcp list` で `session-recall: ... ✓ Connected` 確認済み
 
-## Phase 4 (Lv.3): セマンティック検索
+## Phase 4 (Lv.3): セマンティック検索 ✅
 キーワード一致しない曖昧クエリ（「あのボタン配置で議論した時」「パフォーマンスで悩んだ件」）に対応。
 
-- [ ] 埋め込みモデル選定（`multilingual-e5-small` / `cl-nagoya/sup-simcse-ja-base` 等、CPU で動くサイズ優先）
-- [ ] ベクトル DB: SQLite + `sqlite-vec` 拡張（軽量・ローカル）
-- [ ] 初期インデックス構築スクリプト（全プロジェクトの対象ファイルを段落分割→埋め込み→DB）
-- [ ] 増分更新（`/end` 発火時に最新追記分だけ埋め込み）
-- [ ] MCP ツール `session_recall_semantic` 追加（grep 版と並列提供）
-- [ ] Claude が「キーワード明確 → grep」「曖昧 → semantic」を使い分けるよう指示
+- [x] 埋め込みモデル: `intfloat/multilingual-e5-small`（384 次元、~470MB、CPU 動作、日本語対応）
+- [x] ベクトル DB: SQLite + `sqlite-vec` 0.1.9（vec0 仮想テーブル）
+- [x] `scripts/index_build.py`: 全プロジェクト 3 ファイル走査 → Markdown 見出し単位の段落分割 → 埋め込み → DB 保存
+- [x] 増分更新: ファイル mtime 比較で変更ファイルだけ再埋め込み（`--force` で全再構築）
+- [x] `server.py` に `session_recall_semantic` MCP tool 追加（既存 `session_recall_search` と並列提供）
+- [x] `claude_md_patch.md` v4: 「キーワード明確 → search、曖昧 → semantic」使い分け指示
 
-### クロス PC 戦略
-- 元データ（SESSION_HISTORY 等）は Google Drive 経由で全 PC 同期 = 共通土台
-- ベクトル DB は **PC ごとにローカル**（SQLite + cloud sync は腐敗の既知問題）
-- 各 PC で独立にインデックス構築。`~/.claude-recall/index.db` 等に格納
+### 動作確認済み
+- `index_build.py` で 4239 chunks、84 秒、DB 13.3 MB 生成
+- in-process semantic_search で 3 クエリ全て関連性高い結果返却
+- MCP tools/list で両 tool 認識（session_recall_search + session_recall_semantic）
+
+### クロス PC 戦略（実装通り）
+- 元データ（SESSION_HISTORY 等）は Google Drive 経由で全 PC 同期 = 共通土台 ✅
+- ベクトル DB は PC ごとにローカル（`~/.claude/session-recall-index.db`）✅
+- ツール本体（server.py / index_build.py / search.sh / run_server.sh）は Drive 同期 ✅
+- 新 PC では `bash deploy.sh` 一発で index_build まで自動実行（モデル DL 含めて 1〜数分）
+
+### 残課題（次セッション以降）
+- 実 Claude Code から `mcp__session-recall__session_recall_semantic` 呼び出しの実体検証（resume 後）
+- `/end` スキル拡張で増分インデックス更新の自動化
+- Windows 機での venv + sentence-transformers + sqlite-vec 動作確認
 
 ## アイデアメモ
 - `/recall-proj <プロジェクト名> <キーワード>` で特定プロジェクトに限定検索

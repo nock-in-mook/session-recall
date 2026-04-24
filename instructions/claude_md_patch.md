@@ -1,15 +1,15 @@
-# CLAUDE.md 追加指示（確定版 v3）
+# CLAUDE.md 追加指示（確定版 v4）
 
 このファイルの「マーカー間ブロック」を `deploy.sh` が `~/.claude/CLAUDE.md` と `_claude-sync/CLAUDE.md` に注入する。
 
 - ブロックの開始/終了マーカーは**行頭一致**（`^<!-- session-recall:begin` / `^<!-- session-recall:end`）で検出される
-- 再 deploy 時はマーカー間が最新ブロックで置換される（v1 → v2 → v3 のバージョンアップも自動）
+- 再 deploy 時はマーカー間が最新ブロックで置換される（v1 → v2 → v3 → v4 のバージョンアップも自動）
 - マーカー外の文章（このコメント部分や「メンテナンスメモ」）は注入対象外
 - 説明文中で `<!-- session-recall:begin` のような例示を書く場合は、**行頭に置かない**（バックティック内、インデント内など）
 
 ---
 
-<!-- session-recall:begin v3 -->
+<!-- session-recall:begin v4 -->
 ## 過去セッションの想起（session-recall）
 
 過去の作業・決定・議論を思い出すための横断検索。データソースは各プロジェクト直下の `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md`（`ROADMAP.md` は未確定アイデアが多くノイズになるため対象外）。
@@ -23,32 +23,41 @@
 - ユーザーが思い出せず詰まっている気配（「あれなんだっけ」「どっかで見た」等）
 - 別プロジェクト名（Memolette / Memolette-Flutter / HardReminder / Reminder_Flutter / Personal_Secretary / P3_reminder / P3 Craft / KANJI_HANTEI 等）が会話に出た
 
-### 検索手段の優先順位
+### 検索ツールの使い分け
 
-1. **MCP tool `session_recall_search`**（推奨）
-   - 引数: `keywords: string[]`（複数指定で AND 検索）
-   - settings.local.json で MCP サーバー `session-recall` が有効な場合に利用可能
-   - Claude が tool として自動呼び出しできる
-2. **bash 経由 search.sh**（MCP が使えない・遅い・落ちている場合のフォールバック）
-   ```bash
-   SEARCH_SH=""
-   for p in \
-       "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/session-recall/search.sh" \
-       "/g/マイドライブ/_claude-sync/session-recall/search.sh" \
-       "/G/マイドライブ/_claude-sync/session-recall/search.sh" ; do
-       [ -x "$p" ] && SEARCH_SH="$p" && break
-   done
-   bash "$SEARCH_SH" "キーワード1" "キーワード2"
-   ```
-3. **現プロジェクト直下の grep**（最速。横断検索の前段として）
-   ```bash
-   LC_ALL=en_US.UTF-8 grep -n "キーワード" SESSION_HISTORY.md HANDOFF.md DEVLOG.md 2>/dev/null
-   ```
+**キーワードが明確** → MCP tool **`session_recall_search`**（高速、AND 検索）
+- 引数: `keywords: string[]`
+- 例: `["claude-mem", "撤去"]`、`["TODO", "結合"]`、`["Drive", "同期", "問題"]`
+- 結果は project/file:行番号 + 前後 ±5 行のブロック（更新日時降順、上位 10 件）
+
+**曖昧な概念検索** → MCP tool **`session_recall_semantic`**（意味的近さ、ベクトル検索）
+- 引数: `query: string`（1 文の自然言語推奨）, `limit?: int`
+- 例: 「あのボタン配置で議論した時」「パフォーマンスで悩んだ件」「○○を諦めた経緯」
+- 結果は file:行範囲 + 距離スコア + 該当段落（距離小さいほど近い）
+
+**両方使う**のもアリ。明確キーワードと曖昧クエリの両面から探す価値がある時は両方呼ぶ。
+
+### フォールバック手段（MCP tool が使えないとき）
+
+```bash
+# bash 経由 search.sh（キーワード AND、Phase 2 由来）
+SEARCH_SH=""
+for p in \
+    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/session-recall/search.sh" \
+    "/g/マイドライブ/_claude-sync/session-recall/search.sh" \
+    "/G/マイドライブ/_claude-sync/session-recall/search.sh" ; do
+    [ -x "$p" ] && SEARCH_SH="$p" && break
+done
+bash "$SEARCH_SH" "キーワード1" "キーワード2"
+
+# 現プロジェクトの 3 ファイルだけ grep（最速、横断は不要なケース）
+LC_ALL=en_US.UTF-8 grep -n "キーワード" SESSION_HISTORY.md HANDOFF.md DEVLOG.md 2>/dev/null
+```
 
 ### 検索手順（二段階）
 
 1. **現プロジェクトを先に grep**（cwd 直下の `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md`）
-2. 現プロジェクトでヒットしない、または別プロジェクト言及あり、または横断したい意図 → **MCP tool または search.sh で全プロジェクト検索**
+2. 現プロジェクトでヒットしない、または別プロジェクト言及あり、または横断したい意図 → **MCP tool で全プロジェクト検索**
 
 ### 結果の扱い方
 
@@ -68,15 +77,17 @@
 - 全マッチを列挙する
 - 検索結果を貼るだけで要約しない
 - 過去参照を匂わせる発言を見逃して通常応答する
+- 明確なキーワードがあるのに `session_recall_semantic` を使う（遅いし精度低い、`session_recall_search` の方が良い）
+- 曖昧クエリで `session_recall_search` を使う（キーワード一致しなくて 0 件になりがち）
 
-<!-- session-recall:end v3 -->
+<!-- session-recall:end v4 -->
 
 ---
 
 ## メンテナンスメモ（注入対象外）
 
 - このブロックは `session-recall/deploy.sh` で `~/.claude/CLAUDE.md` と `_claude-sync/CLAUDE.md` の両方に展開される
-- バージョン更新時は `v3` を `v4` に上げ、本文を更新するだけで OK（deploy.sh は前方一致でマーカー検出するためバージョン番号は何でも置換可）
+- バージョン更新時は `v4` を `v5` に上げ、本文を更新するだけで OK（deploy.sh は前方一致でマーカー検出するためバージョン番号は何でも置換可）
 - マーカー文字列（`<!-- session-recall:begin` / `<!-- session-recall:end`）を変更する場合は `deploy.sh` の awk ロジックも追従させる
 - マーカーは行頭限定（`^` 必須）。説明文中での例示は行頭に置かないこと
-- Phase 4 完了時にセマンティック検索ツール（`session_recall_semantic`）も MCP に追加される予定
+- Phase 5 以降で必要そうな改良: 検索ヒット範囲の自動拡張、プロジェクト絞り込みオプション、時系列フィルタ

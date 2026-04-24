@@ -153,3 +153,49 @@
 ### 残課題（resume 後の再検証）
 - もう一度 `/exit` → `claude --resume` で復帰し、ツール一覧に `session-recall` の MCP tool が出るか確認
 - 自然言語クエリで Claude が自動呼び出しするか観察
+
+## 2026-04-24: Phase 4 完了（セマンティック検索）
+
+### 技術選定
+- **埋め込みモデル**: `intfloat/multilingual-e5-small`
+  - 384 次元、~470MB、CPU で動作、100+ 言語対応（日本語含む）
+  - インデックス側は `passage:` prefix、検索側は `query:` prefix（multilingual-e5 推奨）
+- **ベクトル DB**: SQLite + `sqlite-vec` 0.1.9
+  - `vec0` 仮想テーブル、`MATCH` 演算子 + `k=N` で近傍検索
+  - sqlite-vss は更新止まってるので sqlite-vec が後継として安心
+- **段落分割**: Markdown の `^#{1,4} ` 見出しで区切る + 40 行で強制分割
+- **増分判定**: ファイル mtime と DB の `chunks.file_mtime` を比較
+
+### 実装
+- `scripts/index_build.py`: 全プロジェクト走査 → 段落分割 → 埋め込み → SQLite 保存
+- `scripts/server.py` v4.0: `session_recall_semantic` tool 追加（既存 `session_recall_search` と並列）
+- `deploy.sh` を 11 工程に拡張:
+  - `setup_venv_phase4()`: `sentence-transformers` + `sqlite-vec` install
+  - `build_index_if_missing()`: DB 未存在なら `index_build.py` 自動実行
+- `claude_md_patch.md` v4: 「キーワード明確 → search、曖昧 → semantic」使い分け指示
+
+### 動作確認
+- `index_build.py` 初回構築:
+  - 全 _Apps2026/ + _other-projects/ の全 3 ファイル走査
+  - 4239 chunks 生成、84.7 秒、DB 13.3 MB
+  - モデル DL（HuggingFace）はオフラインキャッシュに保存される（次回以降速い）
+- in-process semantic_search テスト 3 クエリ全成功:
+  1. 「TODO リストの結合機能を実装した話」→ Memolette-Flutter HANDOFF/SESSION_HISTORY の結合実装 + Swift 版 Memolette の関連機能
+  2. 「claude-mem を撤去した経緯」→ Memolette-Flutter HANDOFF/SESSION_HISTORY と session-recall DEVLOG の撤去手順
+  3. 「Drive 同期の問題で困った」→ Kanji_Stroke / Data_Share の Dropbox 隠しフォルダ問題議論
+- MCP smoke test:
+  - tools/list で両 tool 認識（session_recall_search + session_recall_semantic）
+  - tools/call (semantic) 経路は subprocess parse で問題ありだが in-process は OK
+  - 実 Claude Code 経由の検証は resume 後に持ち越し
+
+### 設計判断
+- ロジックを Python に移植せず subprocess (search.sh) と Python (semantic) でツール別に実装
+- 増分更新は手動で `python index_build.py` を回す方式（自動化は `/end` フック検討中）
+- DB は PC ローカル（Drive 同期は SQLite 破損リスクで NG）
+- ツール本体（server.py、index_build.py、search.sh、run_server.sh）は Drive 同期して全 PC で同じものを使う
+
+### 残課題（次セッション以降）
+- resume 後に `mcp__session-recall__session_recall_semantic` が実 Claude Code から呼び出されるか
+- `/end` スキル拡張で `python index_build.py` の自動実行を組み込む
+- Windows 機での全工程動作確認（py -3.14 経路、PyTorch インストール、sqlite-vec ロード）
+- Phase 5 アイデア: プロジェクト絞り込み、時系列フィルタ、ハイブリッド検索（keyword + semantic re-rank）

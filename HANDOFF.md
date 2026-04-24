@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-24 セッション #2 終了時（Phase 1〜3 完了、MCP まで構築済み）
+最終更新: 2026-04-24 セッション #4（resume 中、Phase 1〜4 完了、セマンティック検索まで稼働確認済み）
 
 ---
 
@@ -69,25 +69,26 @@
 
 ## 2. 現状スナップショット
 
-### 2.1 作ったもの（Phase 1〜3 完了）
+### 2.1 作ったもの（Phase 1〜4 完了）
 ```
 _Apps2026/session-recall/
 ├── README.md                       プロジェクト概要 + ファイル構成 + デプロイ後の配置 + 利用形態
 ├── HANDOFF.md                      ← このファイル
-├── ROADMAP.md                      Phase 0〜4 の計画（0〜3 ✅）
+├── ROADMAP.md                      Phase 0〜4 すべて ✅
 ├── DEVLOG.md                       開発ログ（フェーズごとの記録）
-├── SESSION_HISTORY.md              セッション履歴（#1, #2 記入済み）
+├── SESSION_HISTORY.md              セッション履歴
 ├── SESSION_LOG.md                  /end 時の自動書き出し先
 ├── .gitignore                      __pycache__/ など
 ├── commands/
 │   └── recall.md                   /recall スキル定義（Claude が解釈する）
 ├── scripts/
-│   ├── search.sh                   bash 検索（ripgrep 優先、複数キーワード AND、±5 行、上位 10）
-│   ├── server.py                   MCP サーバー本体（mcp 1.27.0、stdio）
-│   └── run_server.sh               MCP サーバー起動 wrapper（venv の python を Mac/Win 両対応で探索）
+│   ├── search.sh                   bash キーワード検索（ripgrep 優先、AND、±5 行、上位 10）
+│   ├── server.py                   MCP サーバー (v4): search + semantic 両 tool 提供
+│   ├── run_server.sh               MCP 起動 wrapper（venv の python を Mac/Win 両対応で探索）
+│   └── index_build.py              セマンティック検索 DB 構築（multilingual-e5-small、Markdown 見出し分割）
 ├── instructions/
-│   └── claude_md_patch.md          v3（MCP tool 優先 → bash search.sh フォールバック → 現プロ grep）
-└── deploy.sh                       8 工程の本番反映（venv 自動セットアップ + jq で settings.local.json 更新）
+│   └── claude_md_patch.md          v4（search/semantic の使い分け、現プロ grep フォールバック）
+└── deploy.sh                       11 工程の本番反映（Phase 1〜4 全自動化、初回 index 構築まで）
 ```
 
 ### 2.2 git 状態
@@ -98,19 +99,23 @@ _Apps2026/session-recall/
   - `13a7b54` Phase 2 完了
   - `035537e` Phase 3 完了
 
-### 2.3 デプロイ後の配置（Phase 1〜3 全部反映済み）
+### 2.3 デプロイ後の配置（Phase 1〜4 全部反映済み）
 ```
-~/.claude/CLAUDE.md                                  ← v3 ブロック注入済み
+~/.claude/CLAUDE.md                                  ← v4 ブロック注入済み
 ~/.claude.json                                       ← mcpServers.session-recall 登録済み (claude mcp add --scope user)
-~/.claude/session-recall-venv/                       ← Python venv（PC ローカル）+ mcp 1.27.0 install 済み
-_claude-sync/CLAUDE.md                               ← v3 ブロック注入済み（Win 同期用）
+~/.claude/session-recall-venv/                       ← Python venv (mcp + sentence-transformers + sqlite-vec)
+~/.claude/session-recall-index.db                    ← セマンティック検索ベクトル DB (15 MB、4239 chunks)
+_claude-sync/CLAUDE.md                               ← v4 ブロック注入済み（Win 同期用）
 _claude-sync/commands/recall.md                      ← /recall スキル
-_claude-sync/session-recall/search.sh                ← bash 検索
-_claude-sync/session-recall/server.py                ← MCP サーバー
+_claude-sync/session-recall/search.sh                ← bash キーワード検索
+_claude-sync/session-recall/server.py                ← MCP サーバー (v4: search + semantic)
 _claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
+_claude-sync/session-recall/index_build.py           ← インデックス構築スクリプト
 ```
 
-注: `~/.claude/settings.local.json` の `mcpServers` キーは Claude Code 2.x では読まれないため使わない（旧 deploy で書かれていたが、修正後の deploy で自動削除される）。
+注:
+- `~/.claude/settings.local.json` の `mcpServers` キーは Claude Code 2.x では読まれないため使わない
+- venv と index DB は PC ローカル（プラットフォーム依存・SQLite 破損リスク回避）。新 PC では `bash deploy.sh` で再構築
 
 ### 2.4 claude-mem の現状
 - **完全撤去済み**（2026-04-24 セッション#27 終了直前に実施）
@@ -270,24 +275,28 @@ _claude-sync/session-recall/run_server.sh            ← MCP 起動 wrapper
 
 ---
 
-## 7. 今すぐの次アクション（resume 後 = Phase 4 着手前の検証フェーズ）
+## 7. 今すぐの次アクション（resume 後 = Phase 4 完了後の検証 + 拡張）
 
-### Step 1: MCP tool 認識確認
-セッションが復帰したら、まず Claude Code が `session-recall` MCP サーバーを起動して `session_recall_search` ツールを認識しているか確認:
-- システムリマインダーに `mcp__session-recall__session_recall_search` のような tool 名が出てくるはず
-- もし出てこなければ `~/.claude/settings.local.json` の `mcpServers.session-recall.command` のパスを確認
-- venv が壊れていれば `rm -rf ~/.claude/session-recall-venv && bash deploy.sh` で再構築
+### Step 1: 両 MCP tool の認識確認
+resume したら最初のシステムリマインダーで両方の deferred tool が見えるはず:
+- `mcp__session-recall__session_recall_search`（キーワード AND）
+- `mcp__session-recall__session_recall_semantic`（意味検索）
 
-### Step 2: 自動呼び出しの観察
-- 「前回 Memolette で TODO 結合の件どうしたっけ？」などと尋ねて、Claude が `session_recall_search` を tool として呼ぶか観察
-- 呼ばずに推測で答えたら CLAUDE.md v3 の指示を読み返してフィードバック
+### Step 2: 実体検証
+- キーワード検索: 「前回 Memolette で TODO 結合の件どうしたっけ？」 → `session_recall_search`
+- 意味検索: 「Drive 同期で困った時の対処、何か覚えてる？」 → `session_recall_semantic`
+- 自然言語で曖昧クエリを投げて、Claude が適切な方を選ぶか観察
 
-### Step 3: 自動呼び出しが安定したら Phase 4 へ
-- 埋め込みモデル選定（`multilingual-e5-small` / `cl-nagoya/sup-simcse-ja-base` 等、CPU で動くサイズ）
-- ベクトル DB: SQLite + `sqlite-vec` 拡張
-- インデックス構築スクリプト（全プロジェクト 3 ファイルを段落分割→埋め込み→DB 保存）
-- 増分更新（`/end` フックで最新追記分だけ）
-- MCP tool `session_recall_semantic` を `session_recall_search` と並列提供
+### Step 3: 残課題の対応
+1. **`/end` スキル拡張で増分インデックス更新を自動化**:
+   - `_claude-sync/commands/end.md` に以下を追記する案:
+     ```bash
+     "$HOME/.claude/session-recall-venv/bin/python" \
+       "$HOME/Library/CloudStorage/.../session-recall/index_build.py" --quiet 2>/dev/null &
+     ```
+   - バックグラウンド起動で /end の終了を遅らせない
+2. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動
+3. **Phase 5 アイデア**: ハイブリッド検索（keyword AND の結果を semantic で re-rank）、プロジェクト絞り込みオプション、時系列フィルタ
 
 ### 補足
 - Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）
