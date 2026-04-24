@@ -38,3 +38,27 @@
 - `13a7b54` Phase 2 完了
 - `035537e` Phase 3 完了
 
+---
+## #3 (2026-04-24): resume 後の MCP 認識バグ判明・修正
+
+### 経緯
+- セッション #2 終了後、`/exit` → `claude --resume` で復帰したところ、`session_recall_search` MCP tool が認識されていなかった
+- ToolSearch でヒットせず、`pgrep` でも MCP server プロセスが立っていなかった
+- `claude mcp list` で確認すると `session-recall` が一覧にない（claude.ai 系の OAuth 必要なやつしか出ない）
+
+### 原因
+- **Claude Code 2.x は `~/.claude/settings.local.json` の `mcpServers` キーを読まない**
+- 正規の登録経路は `claude mcp add` CLI 経由（`~/.claude.json` に保存される）
+
+### 修正
+- `claude mcp add --scope user session-recall <run_server.sh>` で登録 → `claude mcp list` で `✓ Connected` 確認
+- `deploy.sh` の `register_mcp_server()` を `claude mcp add` 経由に変更
+- 旧形式の `settings.local.json.mcpServers` キーは自動クリーンアップするロジックも追加
+- DEVLOG / ROADMAP / HANDOFF に経緯と教訓を追記
+- コミット `d48f5bd` push 済み
+
+### 次（再 resume 後）
+- ツール一覧に `mcp__session-recall__session_recall_search` が現れるか確認
+- 「前回 ○○ の話したよね」型の自然言語クエリで Claude が自動で MCP tool を呼ぶか
+- うまく行けば Phase 4（セマンティック検索）着手
+
