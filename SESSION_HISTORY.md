@@ -98,3 +98,34 @@
 ### コミット
 - `32ee178` Phase 4 完了
 
+---
+## #5 (2026-04-24): Phase 4 実体検証完了 + Phase 5（/end フック）完成
+
+### resume 後の実 Claude Code から MCP tool 検証
+- `mcp__session-recall__session_recall_semantic` が deferred tool として認識
+- 3 つの曖昧クエリで質の高い結果:
+  - 「セッション横断で過去の作業を思い出すツールを自作した動機」 → session-recall プロジェクト立ち上げ経緯 + Kanji_Stroke の SESSION_LOG 自動蓄積アイデア
+  - 「リモートデスクトップで作業する時に詰まった問題と解決」 → Chat の Mac リモート Enter 2 回問題 + Karabiner-Elements + everyWEAR でスマホ用 Vercel デプロイ
+  - 「iOS アプリのリリース申請で必要なものを揃えるのに苦労した件」 → P3 Craft の D-U-N-S 申請詰まり + Apple サポート問い合わせ → 正規ルート判明
+- キーワード一致しないクエリでも概念で関連箇所を拾えることが実証された
+
+### Phase 5 完了
+- `scripts/update_index.sh`: venv の python で `index_build.py --quiet` を呼ぶ薄い wrapper
+- `instructions/end_patch.md`: `_claude-sync/commands/end.md` に注入する Step 2.5 ブロック
+- `deploy.sh` を 13 工程に拡張: `extract_end_hook_block()` + `inject_end_hook()` 関数追加、Phase 5 セクション追加
+- 注入された end.md は `nohup bash update_index.sh & ` でバックグラウンド起動 → /end の終了をブロックしない
+
+### 動作確認
+- update_index.sh 単体 OK（exit 0、15 秒）
+- deploy.sh 1 回目: Phase 5 [12/13][13/13] が末尾追記、バックアップ作成
+- deploy.sh 2 回目: 全 13 工程「変更なし」（冪等性 OK）
+- end.md 末尾に Step 2.5 ブロック正しく挿入
+
+### コミット
+- `aafe018` Phase 5: /end フックで増分インデックス自動更新
+
+### 完了状態
+- Phase 1〜5 全フェーズ達成
+- 残課題: Windows 機での全 13 工程動作確認のみ
+- Phase 6 アイデア（ハイブリッド検索、プロジェクト絞り込み、時系列フィルタ）は ROADMAP のアイデアメモに残置
+

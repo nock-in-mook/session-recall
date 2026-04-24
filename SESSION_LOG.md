@@ -694,3 +694,109 @@ Phase 4 着手。タスク立てつつ、`sentence-transformers` + `sqlite-vec` 
 
 🧑 あなた
 resumeテストしよか
+
+↓
+(作業)
+↓
+
+🤖 Claude
+**セッション #4 終了処理完了** ✅（コミット `67826f3` push 済み）
+
+`/exit` → `claude --resume` で復帰してきて。今度は最初のシステムリマインダーに **2 つ**の deferred tool が見えるはず：
+
+- `mcp__session-recall__session_recall_search`（Phase 3 から既に動いてた）
+- **`mcp__session-recall__session_recall_semantic`** ← 今回追加
+
+復帰したら曖昧クエリで試そう（例：「あのとき claude-mem を諦めた話」「Drive 同期で困った件」「セッション横断検索を作った経緯」）。意味検索ならキーワード一致しなくても拾える。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+ほい、もどったよ
+
+🤖 Claude
+📡
+
+おかえり。`mcp__session-recall__session_recall_semantic` 来てる！実体検証で曖昧クエリを試す。schema ロード後に呼ぶ。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+📡
+
+🎉 **セマンティック検索 完全動作確認**。3 つの曖昧クエリ（キーワード一致しない）すべて関連性高い結果：
+
+| クエリ | semantic が拾った内容 |
+|---|---|
+| **「セッション横断で過去の作業を思い出すツールを自作した動機」** | session-recall プロジェクト立ち上げ経緯（claude-mem 撤退・自作転換）、Kanji_Stroke でのセッションログ自動蓄積アイデア、session-recall の一文説明 |
+| **「リモートデスクトップで作業する時に詰まった問題と解決」** | Chat の Mac リモートで Enter 2 回問題 + Ctrl+Space が Command+Space に変わる問題 + Karabiner-Elements で IME 切り替え、everyWEAR でスマホ確認用 Vercel デプロイ案 |
+| **「iOS アプリのリリース申請で必要なものを揃えるのに苦労した件」** | P3 Craft の D-U-N-S 申請で Apple lookup に「P3, K.K.」が誤マッチ → サポート問い合わせ → 「submit your information.」リンクで新規申請の正規ルート判明 |
+
+特に注目すべきは：
+- **キーワード「session-recall」「Karabiner」「D-U-N-S」を一切使ってない**のに、概念的に正しい記述を拾えてる
+- **複数プロジェクト横断で「同じテーマ」の議論を集約**できてる（リモートデスクトップ関連が Chat と everyWEAR から）
+
+---
+
+### Phase 1〜4 完全動作
+
+| Phase | tool / 経路 | 検証 |
+|---|---|---|
+| 1 | CLAUDE.md v4 注入 | ✅ |
+| 2 | `/recall` スキル | ✅ |
+| 3 | MCP `session_recall_search` | ✅ resume 後動作 |
+| 4 | MCP `session_recall_semantic` | ✅ 曖昧クエリで適切な結果 |
+
+---
+
+### 残タスクと次の選択肢
+
+1. **`/end` スキル拡張で増分インデックス更新を自動化** → セッション終了時に新セッション分が自動で DB 反映される（地味だが有用）
+2. **/end して一段落** → 検証も全部終わったし、ここで切るのもアリ
+3. **Phase 5 着手** → ハイブリッド検索 / プロジェクト絞り込み / 時系列フィルタ
+
+どうする？
+
+🧑 あなた
+おお、最高だね。1やろう。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+**Phase 5 完了** ✅（コミット `aafe018` push 済み）
+
+### Phase 1〜5 全達成サマリー
+
+| Phase | 機能 | 状態 |
+|---|---|---|
+| 1 | CLAUDE.md v4 で grep/MCP 指示注入 | ✅ |
+| 2 | `/recall` スキル + bash AND 検索 | ✅ |
+| 3 | MCP `session_recall_search`（キーワード） | ✅ resume 後動作確認 |
+| 4 | MCP `session_recall_semantic`（意味） | ✅ resume 後動作確認 |
+| 5 | `/end` フックで増分自動更新 | ✅ 注入完了、次回 /end で実体検証 |
+
+### Phase 5 で追加された自動化
+
+- セッション終了時に `_claude-sync/commands/end.md` Step 2.5 が走る
+- `nohup bash update_index.sh >/dev/null 2>&1 &` でバックグラウンド起動
+- `/end` の体感時間は変わらない（裏で 1〜数十秒で増分更新）
+- DB/venv 未セットアップなら内部でサイレント `exit 0`（新 PC でも安全）
+
+---
+
+### 残った選択肢
+
+1. **`/end` で締める** → フックも実体検証できるので一石二鳥
+2. **Phase 6 着手** → ハイブリッド検索 / プロジェクト絞り込み / 時系列フィルタ
+3. **メモリに保存** → 「session-recall は完成済み、新 PC では `bash deploy.sh` 一発」みたいな user memory として残す
+
+どうする？
+
+🧑 あなた
+end！
