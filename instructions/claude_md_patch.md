@@ -1,4 +1,4 @@
-# CLAUDE.md 追加指示（確定版 v5）
+# CLAUDE.md 追加指示（確定版 v6）
 
 このファイルの「マーカー間ブロック」を `deploy.sh` が `~/.claude/CLAUDE.md` と `_claude-sync/CLAUDE.md` に注入する。
 
@@ -9,7 +9,7 @@
 
 ---
 
-<!-- session-recall:begin v5 -->
+<!-- session-recall:begin v6 -->
 ## 過去セッションの想起（session-recall）
 
 過去の作業・決定・議論を思い出すための横断検索。データソースは各プロジェクト直下の `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md`（`ROADMAP.md` は未確定アイデアが多くノイズになるため対象外）。
@@ -89,7 +89,32 @@ LC_ALL=en_US.UTF-8 grep -n "キーワード" SESSION_HISTORY.md HANDOFF.md DEVLO
 - 曖昧クエリで `session_recall_search` を使う（キーワード一致しなくて 0 件になりがち）
 - ユーザーが特定プロジェクト名を言っているのに `project` 引数を省いて全横断して他プロジェクトのノイズを混ぜる
 
-<!-- session-recall:end v5 -->
+### セッション開始時の DB 自動追いつき（必ず実行）
+
+session-recall の DB は PC ローカル保存。他 PC で `/end` 時に書かれた最新 `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md` 追記分は、Drive 同期で来てもこの PC の DB にはまだ入っていない。放置すると「別 PC で話した内容が検索に出てこない」盲点が 1 セッション分残る。
+
+**セッション開始時、グローバル CLAUDE.md の Step 0（文脈引き継ぎ + git pull）と並列で**、以下を**必ずバックグラウンド実行**する：
+
+- `update_index.sh 0` をバックグラウンド起動（第 1 引数の `0` は sleep 秒数 = 待ちなし／/end 用途の 30 秒とは別）
+- ユーザー応答を遅らせない（非ブロッキング、nohup 経由）
+- 失敗しても無視（venv/DB 未構築・初回 deploy 前などは内部でサイレントスキップ）
+- 増分更新なので変更ファイルがなければ即終了（mtime 比較）
+
+```bash
+for p in \
+    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/session-recall/update_index.sh" \
+    "/g/マイドライブ/_claude-sync/session-recall/update_index.sh" \
+    "/G/マイドライブ/_claude-sync/session-recall/update_index.sh" ; do
+    if [ -x "$p" ]; then
+        nohup bash "$p" 0 >/dev/null 2>&1 &
+        break
+    fi
+done
+```
+
+これで「Step 0 書き出し直後の開始時追いつき」と「Step 2.9 書き出し直後の終了時追いつき」の両端で DB を最新化する。PC 間の検索盲点は残らない。
+
+<!-- session-recall:end v6 -->
 
 ---
 

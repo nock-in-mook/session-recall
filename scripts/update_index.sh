@@ -46,9 +46,11 @@ if [ -z "$SCRIPT" ]; then
     exit 0
 fi
 
-# /end の並列書き出し（HANDOFF/SESSION_HISTORY/SESSION_LOG）を待ってから mtime 比較する
-# 待たないと書き出し前の mtime でインデックスが走り、最新セッション分を取りこぼす（#5 で実際に発生）
-sleep 30
+# sleep 秒数は第 1 引数で指定可能（デフォルト 30）。
+# /end 用途では並列書き出し（HANDOFF/SESSION_HISTORY/SESSION_LOG）を待ってから mtime 比較するため 30 秒必要
+# （待たないと書き出し前の mtime でインデックスが走り、最新セッション分を取りこぼす — #5 で実際に発生）。
+# セッション開始時の追いつき用途では書き出しを待つ必要がないため 0 を渡す。
+sleep "${1:-30}"
 
 # 増分更新（mtime 変更ファイルのみ再埋め込み）
 "$VENV_PY" "$SCRIPT" --db "$INDEX_DB" --quiet >/dev/null 2>&1

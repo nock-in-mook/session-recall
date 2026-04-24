@@ -328,3 +328,30 @@ bash 3.2（macOS default）は `set -u` 下で空配列 `"${A[@]}"` を unbound 
 ### 残課題
 - Windows 機での動作確認（既存の残課題に含める）
 - Claude Code 再起動後に新しい project 引数が Claude の自動判断で使われるか観察
+
+## 2026-04-25: Phase 5.2 完了（セッション開始時のインデックス自動追いつき）
+
+### 動機
+セッション #8 の Mac A ↔ Mac B 跨ぎ試験で「PC 間で DB 更新タイミングがずれる」課題が顕在化。
+- `/end` は各 PC ローカル DB に反映するだけ
+- 別 PC で書かれた最新 SESSION_HISTORY は Drive 同期で届いても、自機 DB には**次に自機で `/end` が走るまで**反映されない
+- PC を跨いで作業すると最大 1 セッション分の検索盲点が残る
+
+→ セッション**開始時**にも自動的に DB を追いつかせるフックを追加する。両端で追いつかせれば PC 間盲点が消える。
+
+### 実装
+1. **`scripts/update_index.sh`**: `sleep 30` を引数化（`sleep "${1:-30}"`）。デフォルトは既存の /end 用 30 秒、セッション開始時は `0` を渡す運用。
+2. **`instructions/claude_md_patch.md` v6**: session-recall ブロック末尾に「セッション開始時の DB 自動追いつき（必ず実行）」セクション追加。グローバル CLAUDE.md の Step 0（文脈引き継ぎ + git pull）と**並列で** `nohup bash update_index.sh 0 &` を実行する bash ブロックを明示。
+
+### 動作確認
+- `time bash update_index.sh 0` = 8.5 秒（純粋な venv 起動 + mtime 比較コスト、sleep 30 なら 38 秒超になる）
+- `deploy.sh` Phase 1 で両 CLAUDE.md が v5 → v6 に置換、Phase 5 で update_index.sh が更新（冪等性維持）
+
+### 設計判断
+- **引数化 vs 別スクリプト**: 別 script `update_index_now.sh` を作らず、既存 `update_index.sh` を引数受けに拡張。メンテ対象・テスト対象を増やさない。
+- **/end フック側は変更不要**: end-hook は引数なしで呼んでいる（`nohup bash update_index.sh &`）ため、デフォルト 30 秒が効く。後方互換 OK。
+- **deploy.sh も変更不要**: 既存 Phase 1 で CLAUDE.md を v6 に注入、Phase 5 で update_index.sh を Drive 同期するので新規工程不要。Phase 番号も 5 系列のまま（5.2 = 終了時と対称な開始時フック）。
+
+### 残課題
+- 次セッション開始時（別 Mac や Windows で）に start-hook が実際に発火するか実体観察
+- Claude がセッション開始時に bash ブロックを確実に実行するか（Step 0 指示への追従性）

@@ -111,6 +111,24 @@
 - [x] 競合シナリオ再現テストで sleep 30 後の新 mtime を正しく検出することを確認
 - [x] セッション #6 終了時の本番試験: コミット 23:27:02 → DB indexed_at 23:27:47、file_mtime も実ファイルと完全一致（Phase 6 セッション開始時に検証完了）
 
+## Phase 5.2: セッション開始時のインデックス自動追いつき ✅
+/end フック（Phase 5/5.1）はセッション終了時に自機 DB を更新する。しかし PC 間で作業を跨ぐと「別 PC で書かれた SESSION_HISTORY が自機 DB に次の自機 /end まで反映されない 1 セッション分の盲点」が残る（セッション #8 の Mac A ↔ B 試験で確認）。開始時にも追いつかせることで盲点を消す。
+
+- [x] `scripts/update_index.sh` の `sleep 30` を引数化（`sleep "${1:-30}"`、start 用途は `0` を渡す）
+- [x] `instructions/claude_md_patch.md` v6: 「セッション開始時の DB 自動追いつき（必ず実行）」セクション追加。Step 0 と並列でバックグラウンド実行を明示
+- [x] deploy.sh 実行で両 CLAUDE.md に v6 注入 + update_index.sh の引数化を Drive 同期
+
+### 動作確認
+- `time bash update_index.sh 0` = 8.5 秒（sleep 0 が効いてる、sleep 30 なら 38 秒超になるはず）
+- deploy.sh 冪等性: 2 回目実行で update_index.sh 以外の 12 工程は「変更なし」
+
+### 設計判断
+- 引数化方式（別スクリプト化せず）で既存 end-hook の後方互換を維持
+- deploy.sh は変更不要（Phase 1 の CLAUDE.md 注入と Phase 5 の update_index.sh 配置で完結）
+
+### 残課題
+- 次セッション開始時（別 Mac や Windows で）に start-hook が実際に発火するか実体観察
+
 ## Phase 6: プロジェクト絞り込み ✅
 両 MCP tool に optional な `project` 引数を追加し、特定プロジェクトのみを対象にした検索を可能に。DB 再構築不要。
 
