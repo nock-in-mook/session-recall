@@ -40,19 +40,25 @@
 - 修正: awk パターンを行頭マッチ `^<!-- session-recall:` に変更
 - 教訓: マーカーパターンは行頭 `^` 必須、説明文中での例示は安全
 
-## Phase 3 (Lv.2): MCP サーバー化
-ユーザーが `/recall` を打たなくても、Claude が会話文脈から自動で呼ぶ。
+## Phase 3 (Lv.2): MCP サーバー化 ✅
+ユーザーが `/recall` を打たなくても、Claude が会話文脈から自動で `session_recall_search` ツールを呼ぶ。
 
-- [ ] MCP サーバー実装（TypeScript or Python）
-- [ ] ツール名: `session_recall_search`、引数: `keywords: string[]`, `projects?: string[]`
-- [ ] バックエンド: ripgrep または **SQLite FTS5** で高速化
-- [ ] `~/.claude/settings.json` に登録
-- [ ] CLAUDE.md 指示文を MCP 呼び出しに切り替え
-- [ ] 動作検証（明示コマンドなしで自動呼び出しされるか）
+- [x] MCP サーバー実装（Python、`mcp` パッケージ 1.27.0、stdio transport）
+- [x] ツール名: `session_recall_search`、引数: `keywords: string[]`
+- [x] バックエンド: 当面は subprocess 経由で `search.sh` を呼ぶ（Phase 3.5 で SQLite FTS5 化検討）
+- [x] `~/.claude/settings.local.json` に登録（jq merge で既存項目を破壊せず追記）
+  - 注: `settings.json`（Drive 同期）ではなく `settings.local.json`（PC ローカル）に書く。Mac/Win で絶対パスが異なるため
+- [x] `claude_md_patch.md` を v3 に更新（MCP tool 優先 / bash search.sh フォールバック / 現プロジェクト grep を先頭）
+- [x] MCP プロトコル動作確認: initialize / tools/list / tools/call すべて正常
 
-### 進めるかどうかの判断
-- Phase 2 の time-to-result が 1 秒以内で十分速いなら Phase 3 のスコープを軽くできる
-- ただし最終形まで作る方針なので、軽量実装でも MCP 化はやる
+### 動作確認済み
+- venv 自動セットアップ + mcp 自動インストール（`deploy.sh` 内で完結）
+- `tools/call` で `session_recall_search(["claude-mem", "撤去"])` 実行 → `search.sh` の出力が JSON-RPC で返却
+
+### 残課題（実体検証）
+- Claude Code 再起動後にツールが認識・自動呼び出しされるか
+- 自然言語クエリ（「前回 ○○ の話したよね」等）で Claude が自動的に MCP tool を呼ぶか
+- Windows 機での venv セットアップ + MCP server 起動確認
 
 ## Phase 4 (Lv.3): セマンティック検索
 キーワード一致しない曖昧クエリ（「あのボタン配置で議論した時」「パフォーマンスで悩んだ件」）に対応。

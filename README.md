@@ -50,10 +50,12 @@ session-recall/
 ├── commands/
 │   └── recall.md                   /recall スキル定義（Claude が解釈する）
 ├── scripts/
-│   └── search.sh                   実処理（複数キーワード AND、ripgrep 優先）
+│   ├── search.sh                   bash 実処理（複数キーワード AND、ripgrep 優先）
+│   ├── server.py                   MCP サーバー本体（Python 3.10+、mcp パッケージ）
+│   └── run_server.sh               MCP サーバー起動 wrapper
 ├── instructions/
-│   └── claude_md_patch.md          global CLAUDE.md に追加する指示文
-└── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等）
+│   └── claude_md_patch.md          global CLAUDE.md に追加する指示文（v3）
+└── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等、8 工程）
 ```
 
 ## デプロイ後の配置
@@ -62,9 +64,21 @@ session-recall/
 
 ```
 ~/.claude/CLAUDE.md                                       ← マーカー間ブロック注入
+~/.claude/settings.local.json                             ← MCP サーバー登録（mcpServers.session-recall）
+~/.claude/session-recall-venv/                            ← Python venv（PC ローカル、Drive 同期しない）
 _claude-sync/CLAUDE.md                                    ← マーカー間ブロック注入（Win 同期用）
 _claude-sync/commands/recall.md                           ← /recall スキル
-_claude-sync/session-recall/search.sh                     ← 実処理スクリプト
+_claude-sync/session-recall/search.sh                     ← bash 検索スクリプト
+_claude-sync/session-recall/server.py                     ← MCP サーバー
+_claude-sync/session-recall/run_server.sh                 ← MCP サーバー起動 wrapper
 ```
 
-冪等性あり: 差分なしならバックアップも作らない。再 deploy で v1 → v2 などのバージョン置換も自動。
+冪等性あり: 差分なしならバックアップも作らない。再 deploy で v1 → v2 → v3 などのバージョン置換も自動。
+
+## 利用形態
+
+| 利用方法 | 手段 |
+|---|---|
+| Claude が自動的に検索（推奨） | MCP tool `session_recall_search` を Claude が呼ぶ（要 Claude Code 再起動） |
+| ユーザーが明示的に検索 | `/recall <キーワード>` スラッシュコマンド |
+| シェルで直接検索 | `bash _claude-sync/session-recall/search.sh <キーワード>` |

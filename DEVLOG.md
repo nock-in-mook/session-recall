@@ -83,3 +83,45 @@
 - 新セッション（CLAUDE.md 再ロード後）で「前回 Memolette で何してた？」など自然言語クエリが自動で search.sh を呼ぶか検証
 - Windows 機での `deploy.sh` / `search.sh` 動作確認
 - Phase 3 着手: MCP サーバー化（ripgrep ベース or SQLite FTS5）
+
+## 2026-04-24: Phase 3 完了
+
+### 環境
+- Mac: `/opt/homebrew/bin/python3.12` を使用（システムの 3.9 は古いため）
+- venv は `~/.claude/session-recall-venv/` に PC ローカルで作成（Drive 同期しない）
+- mcp パッケージ 1.27.0 を venv にインストール
+
+### 実装
+- `scripts/server.py`: MCP server 本体（stdio transport）。`session_recall_search` tool を提供、内部で subprocess 経由で `search.sh` を呼ぶ
+- `scripts/run_server.sh`: 起動 wrapper。venv の python を Mac/Win 両対応で探して exec
+- `deploy.sh` Phase 3 拡張:
+  - `setup_venv()`: Python 3.10+ 自動探索（Mac は Homebrew、Win は `py -3.14`）→ venv 作成 → mcp 自動インストール
+  - `register_mcp_server()`: `settings.local.json` に jq merge で `mcpServers.session-recall` を追記（既存 `permissions` / `hooks` を破壊しない）
+  - 8 工程に整理（[1/8]〜[8/8]）
+
+### `claude_md_patch.md` v3
+- 検索手段の優先順位を明文化: MCP tool > bash search.sh > 現プロジェクト grep
+- 「マーカーは行頭限定（`^` 必須）」を明示してメンテナンスメモに追記
+
+### 動作確認
+- `deploy.sh` 1 回目: Phase 1 v2→v3 マーカー間置換、Phase 3 venv 既存・mcp 既存・新規ファイル配置・settings.local.json 更新
+- `deploy.sh` 2 回目: 全 8 工程「変更なし」（冪等性 OK）
+- `settings.local.json` 確認: 既存 `permissions` / `hooks` が保持され、`mcpServers.session-recall` が追加されている
+- MCP プロトコル smoke test:
+  - initialize → `protocolVersion: 2024-11-05` / `serverInfo: session-recall@3.0.0` 返却 OK
+  - tools/list → `session_recall_search` ツール定義返却 OK
+  - tools/call → `keywords: ["claude-mem", "撤去"]` で search.sh 結果を JSON-RPC で返却 OK
+
+### 設計判断
+- ツール名は `session_recall_search` 単数形（MCP 慣習）
+- search.sh のロジックを Python に再実装せず subprocess 呼び出しに（一実装で済む、テスト容易、Phase 2 と整合）
+- 将来パフォーマンス課題なら Phase 3.5 で SQLite FTS5 直接アクセスに置き換え（プロセス起動オーバーヘッド削減）
+- venv は PC ローカル（Drive 同期するとプラットフォーム互換性が壊れる）
+- `settings.json`（Drive 同期）ではなく `settings.local.json` に登録（絶対パスが Mac/Win で異なるため）
+- `_claude-sync/session-recall/` は配布物（search.sh / server.py / run_server.sh）の集約場所。venv は別
+
+### 残課題（次セッション以降）
+- Claude Code を再起動して、セッション内で `session_recall_search` ツールが認識されるか確認
+- ユーザーが「前回 ○○ の話したよね」と聞いた時に Claude が自動で MCP tool を呼ぶか観察
+- Windows 機での venv セットアップ + MCP server 起動確認（py -3.14 経路の動作確認）
+- Phase 4 着手: セマンティック検索（埋め込みモデル + sqlite-vec）

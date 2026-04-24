@@ -3,6 +3,8 @@
 #  - Phase 1: instructions/claude_md_patch.md のマーカー間ブロックを
 #             ~/.claude/CLAUDE.md と _claude-sync/CLAUDE.md に注入
 #  - Phase 2: commands/recall.md と scripts/search.sh を _claude-sync 経由で配置
+#  - Phase 3: Python venv セットアップ + scripts/server.py & run_server.sh 配置
+#             + ~/.claude/settings.local.json に MCP サーバー登録
 # 全工程冪等（差分なしならバックアップも作らない）。
 
 set -euo pipefail
@@ -12,6 +14,9 @@ CLAUDE_HOME="$HOME/.claude"
 PATCH_FILE="$SELF_DIR/instructions/claude_md_patch.md"
 RECALL_MD="$SELF_DIR/commands/recall.md"
 SEARCH_SH="$SELF_DIR/scripts/search.sh"
+SERVER_PY="$SELF_DIR/scripts/server.py"
+RUN_SERVER_SH="$SELF_DIR/scripts/run_server.sh"
+VENV_DIR="$CLAUDE_HOME/session-recall-venv"
 
 # _claude-sync の場所（Mac/Win 両対応）
 SYNC_DIR=""
@@ -43,9 +48,6 @@ extract_block() {
 }
 
 # CLAUDE.md にマーカー間ブロックを注入（冪等）
-#  - 既存マーカーあり → マーカー間を最新ブロックで置換（バージョン違いも検出）
-#  - マーカー無し     → 末尾に追記
-#  - 内容差分が無ければ何もせず終了（バックアップも作らない）
 inject_into() {
     local target="$1"
 
@@ -91,7 +93,7 @@ inject_into() {
         ' "$target" > "$tmp"
         mode="マーカー間置換"
     else
-        # マーカー無し → 末尾追記（前に空行 2 つ入れて区切る）
+        # マーカー無し → 末尾追記
         cat "$target" > "$tmp"
         printf '\n\n' >> "$tmp"
         cat "$block_file" >> "$tmp"
@@ -112,7 +114,7 @@ inject_into() {
     rm -f "$block_file"
 }
 
-# ファイル単純コピー（冪等、差分なしならバックアップも作らない）
+# ファイル単純コピー（冪等）
 sync_file() {
     local src="$1"
     local dst="$2"
@@ -138,34 +140,152 @@ sync_file() {
     echo "  $dst → 更新"
 }
 
+# Python venv セットアップ（PC ローカル、Drive 同期しない）
+# venv に mcp パッケージをインストール
+setup_venv() {
+    # Python 3.10+ を探す（Mac: Homebrew python3.12、Win: py -3.14）
+    local py_cmd=""
+    if command -v py >/dev/null 2>&1 && py -3.14 --version >/dev/null 2>&1; then
+        py_cmd="py -3.14"
+    elif command -v py >/dev/null 2>&1 && py -3.12 --version >/dev/null 2>&1; then
+        py_cmd="py -3.12"
+    else
+        for cmd in \
+            "/opt/homebrew/bin/python3.12" \
+            "/opt/homebrew/bin/python3.13" \
+            "/opt/homebrew/bin/python3.11" \
+            "python3.12" "python3.13" "python3.11" "python3.10" ; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+                py_cmd="$cmd"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$py_cmd" ]; then
+        echo "  Python 3.10+ が見つかりません。venv セットアップをスキップ" >&2
+        return 1
+    fi
+
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "  venv 作成: $VENV_DIR (using $py_cmd)"
+        $py_cmd -m venv "$VENV_DIR"
+    else
+        echo "  venv 既存: $VENV_DIR"
+    fi
+
+    # venv 内の python を特定
+    local venv_py=""
+    for p in "$VENV_DIR/bin/python" "$VENV_DIR/Scripts/python" "$VENV_DIR/Scripts/python.exe"; do
+        [ -x "$p" ] && venv_py="$p" && break
+    done
+
+    if [ -z "$venv_py" ]; then
+        echo "  エラー: venv の python が見つかりません" >&2
+        return 1
+    fi
+
+    # mcp パッケージ確認・インストール
+    if "$venv_py" -c "import mcp" >/dev/null 2>&1; then
+        echo "  mcp パッケージ: 既にインストール済み"
+    else
+        echo "  mcp パッケージをインストール中..."
+        "$venv_py" -m pip install --quiet --upgrade pip
+        "$venv_py" -m pip install --quiet mcp
+        echo "  mcp パッケージ: インストール完了"
+    fi
+}
+
+# settings.local.json に MCP サーバー登録（jq で merge、冪等）
+register_mcp_server() {
+    local settings="$CLAUDE_HOME/settings.local.json"
+
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "  jq が無いため settings.local.json は自動更新できません" >&2
+        echo "  手動で以下を mcpServers に追加してください:" >&2
+        echo "    \"session-recall\": { \"command\": \"$SYNC_DIR/session-recall/run_server.sh\" }" >&2
+        return 1
+    fi
+
+    [ ! -f "$settings" ] && echo '{}' > "$settings"
+
+    local run_server="$SYNC_DIR/session-recall/run_server.sh"
+
+    local tmp
+    tmp="$(mktemp)"
+    jq --arg cmd "$run_server" '
+        .mcpServers = (.mcpServers // {}) |
+        .mcpServers["session-recall"] = {"command": $cmd}
+    ' "$settings" > "$tmp"
+
+    if cmp -s "$settings" "$tmp"; then
+        echo "  $settings → 変更なし"
+        rm -f "$tmp"
+        return 0
+    fi
+
+    local backup="${settings}.bak.$(date +%Y%m%d_%H%M%S)"
+    cp "$settings" "$backup"
+    mv "$tmp" "$settings"
+    echo "  $settings → 更新（mcpServers.session-recall を追加/更新）"
+    echo "    バックアップ: $backup"
+}
+
 # === Phase 1: CLAUDE.md 注入 ===
 echo "─── Phase 1: CLAUDE.md 注入 ───"
-echo "[1/4] $CLAUDE_HOME/CLAUDE.md"
+echo "[1/8] $CLAUDE_HOME/CLAUDE.md"
 inject_into "$CLAUDE_HOME/CLAUDE.md"
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[2/4] $SYNC_DIR/CLAUDE.md"
+    echo "[2/8] $SYNC_DIR/CLAUDE.md"
     inject_into "$SYNC_DIR/CLAUDE.md"
 else
-    echo "[2/4] _claude-sync 未検出のためスキップ"
+    echo "[2/8] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 2: スキル & スクリプト配置 ===
-echo "─── Phase 2: スキル & スクリプト配置 ───"
+echo "─── Phase 2: スキル & 検索スクリプト配置 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[3/4] $SYNC_DIR/commands/recall.md"
+    echo "[3/8] $SYNC_DIR/commands/recall.md"
     sync_file "$RECALL_MD" "$SYNC_DIR/commands/recall.md"
     echo ""
 
-    echo "[4/4] $SYNC_DIR/session-recall/search.sh"
+    echo "[4/8] $SYNC_DIR/session-recall/search.sh"
     sync_file "$SEARCH_SH" "$SYNC_DIR/session-recall/search.sh"
     chmod +x "$SYNC_DIR/session-recall/search.sh"
 else
-    echo "[3/4] _claude-sync 未検出のためスキップ（recall.md 配置不可）"
-    echo "[4/4] _claude-sync 未検出のためスキップ（search.sh 配置不可）"
+    echo "[3/8] _claude-sync 未検出のためスキップ"
+    echo "[4/8] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
+# === Phase 3: MCP サーバー配置 + venv + 登録 ===
+echo "─── Phase 3: MCP サーバー ───"
+echo "[5/8] venv セットアップ ($VENV_DIR)"
+setup_venv
+echo ""
+
+if [ -n "$SYNC_DIR" ]; then
+    echo "[6/8] $SYNC_DIR/session-recall/server.py"
+    sync_file "$SERVER_PY" "$SYNC_DIR/session-recall/server.py"
+    echo ""
+
+    echo "[7/8] $SYNC_DIR/session-recall/run_server.sh"
+    sync_file "$RUN_SERVER_SH" "$SYNC_DIR/session-recall/run_server.sh"
+    chmod +x "$SYNC_DIR/session-recall/run_server.sh"
+    echo ""
+
+    echo "[8/8] $CLAUDE_HOME/settings.local.json (MCP server 登録)"
+    register_mcp_server
+else
+    echo "[6/8] _claude-sync 未検出のためスキップ"
+    echo "[7/8] _claude-sync 未検出のためスキップ"
+    echo "[8/8] _claude-sync 未検出のためスキップ"
+fi
+
+echo ""
 echo "deploy 完了。"
+echo ""
+echo "ヒント: MCP サーバーを Claude Code で有効化するには Claude Code の再起動が必要です。"
