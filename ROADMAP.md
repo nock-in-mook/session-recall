@@ -4,64 +4,78 @@
 - [x] `session-recall/` フォルダ作成
 - [x] 初期ドキュメント（README / HANDOFF / ROADMAP / DEVLOG / SESSION_HISTORY）
 - [x] スキル・インストラクション・deploy スクリプトのスケルトン
-- [ ] git init + 初期コミット
-- [ ] GitHub リポジトリ作成 + push
+- [x] git init + 初期コミット
+- [x] GitHub リポジトリ作成 + push
 
-## Phase 1 (Lv.0): CLAUDE.md 指示追加
+## Phase 1 (Lv.0): CLAUDE.md 指示追加 ✅
 過去セッション参照が必要なとき、Claude が自発的に grep するように指示を追加する。
 
-- [ ] `instructions/claude_md_patch.md` に指示文確定（ドラフト作成済み）
-- [ ] `~/.claude/CLAUDE.md` に追記（deploy.sh 経由）
-- [ ] `_claude-sync/CLAUDE.md` にも同期（Windows 側反映用）
-- [ ] 別プロジェクトで「前回 Flutter で何してた？」等のクエリで動作確認
-- [ ] 参照対象ファイル範囲の確定（SESSION_HISTORY のみか、HANDOFF/DEVLOG/ROADMAP も含むか）
+- [x] `instructions/claude_md_patch.md` 確定版 v1（マーカー `<!-- session-recall:begin v1 -->` ... `:end v1 -->`）
+- [x] `deploy.sh` 実装（冪等、Mac/Win 両対応、差分なしならバックアップも作らない）
+- [x] `~/.claude/CLAUDE.md` に追記
+- [x] `_claude-sync/CLAUDE.md` にも追記（Windows 側展開用）
+- [x] 別プロジェクト（Memolette-Flutter）で grep 動作確認 → 「結合」「claude-mem」両方でヒット
+- [x] 参照対象を `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md` に確定（`ROADMAP.md` は除外）
 
 ### Phase 1 の成功基準
-- 「前回 Memolette で何の作業してた？」と聞いた時に Claude が自動で SESSION_HISTORY.md を grep して答える
-- ユーザーが「recall」とか明示的コマンドを打たなくても自然言語で動く
+- [x] 「前回 Memolette で何の作業してた？」と聞いた時に Claude が自動で grep して答える（指示追加済み、新セッションで実体検証要）
+- [x] ユーザーが明示コマンドを打たなくても自然言語で動く（CLAUDE.md 指示で実現）
 
 ## Phase 2 (Lv.1): /recall スラッシュコマンド
-複数プロジェクト横断の想起を、明示的コマンドで呼べるようにする。
+複数プロジェクト横断の想起を、明示的コマンドで呼べるようにする。Phase 1 の grep を skill 経由に切り替える。
 
 - [ ] `skills/recall/search.sh` 実装
-  - 引数: キーワード（複数AND検索対応）
-  - 検索範囲: `_Apps2026/*/SESSION_HISTORY.md`, `_other-projects/*/SESSION_HISTORY.md` ほか
+  - 引数: キーワード（複数 AND 検索対応）
+  - 検索範囲: `_Apps2026/*/SESSION_HISTORY.md`, `HANDOFF.md`, `DEVLOG.md` + `_other-projects/*/`
+  - ripgrep 優先、なければ grep
   - 結果: マッチ行前後 ±5 行を context 注入用に整形
-- [ ] `skills/recall/skill.md` 定義
-- [ ] deploy.sh で `~/.claude/skills/` に配置
-- [ ] 動作検証（横串クエリ、日本語対応、ファイル数多い時のパフォーマンス）
+  - 出力フォーマット: `### プロジェクト名/ファイル名:行番号\n本文抜粋`
+  - マッチ多数時はトップ 10 件程度に絞る
+- [ ] `skills/recall/skill.md` を Claude が解釈する形式で確定
+- [ ] `deploy.sh` 拡張: `skills/recall/` を `~/.claude/skills/recall/` に配置
+- [ ] `claude_md_patch.md` 更新: grep 直叩きから `/recall` への誘導に切り替え（Phase 2 完了時）
+- [ ] 動作検証（横串クエリ、日本語対応、パフォーマンス計測）
 
 ### Phase 2 の成功基準
 - `/recall ToDo 結合` 等で過去の全プロジェクトから該当会話を引き出せる
 - 1 秒以内に返ってくる
+- 日本語キーワードで正常動作
 
-## Phase 3 (Lv.2): MCP サーバー化（任意）
-Lv.1 がパワー不足だった場合のみ進める。
+## Phase 3 (Lv.2): MCP サーバー化
+ユーザーが `/recall` を打たなくても、Claude が会話文脈から自動で呼ぶ。
 
 - [ ] MCP サーバー実装（TypeScript or Python）
-- [ ] ripgrep or FTS5 で高速化
-- [ ] Claude が tool として自動呼び出し可能に
-- [ ] `settings.json` に登録
+- [ ] ツール名: `session_recall_search`、引数: `keywords: string[]`, `projects?: string[]`
+- [ ] バックエンド: ripgrep または **SQLite FTS5** で高速化
+- [ ] `~/.claude/settings.json` に登録
+- [ ] CLAUDE.md 指示文を MCP 呼び出しに切り替え
+- [ ] 動作検証（明示コマンドなしで自動呼び出しされるか）
 
-### 進めるかどうかの判断基準
-- Phase 2 で「キーワード完全一致では拾えない」ケースが頻発するか
-- 検索速度が実用レベルか
+### 進めるかどうかの判断
+- Phase 2 の time-to-result が 1 秒以内で十分速いなら Phase 3 のスコープを軽くできる
+- ただし最終形まで作る方針なので、軽量実装でも MCP 化はやる
 
-## Phase 4 (Lv.3): セマンティック検索（遠い先）
-曖昧な想起（「あのバグ直した時の話」）に対応したくなったら。
+## Phase 4 (Lv.3): セマンティック検索
+キーワード一致しない曖昧クエリ（「あのボタン配置で議論した時」「パフォーマンスで悩んだ件」）に対応。
 
-- [ ] 埋め込みモデル選定（sentence-transformers / multilingual-e5 等）
-- [ ] SQLite + ベクトル拡張 or ChromaDB
-- [ ] インクリメンタル更新機構
-- [ ] PC ごとに DB 別管理（Google Drive 経由で SQLite 同期は壊れるため）
+- [ ] 埋め込みモデル選定（`multilingual-e5-small` / `cl-nagoya/sup-simcse-ja-base` 等、CPU で動くサイズ優先）
+- [ ] ベクトル DB: SQLite + `sqlite-vec` 拡張（軽量・ローカル）
+- [ ] 初期インデックス構築スクリプト（全プロジェクトの対象ファイルを段落分割→埋め込み→DB）
+- [ ] 増分更新（`/end` 発火時に最新追記分だけ埋め込み）
+- [ ] MCP ツール `session_recall_semantic` 追加（grep 版と並列提供）
+- [ ] Claude が「キーワード明確 → grep」「曖昧 → semantic」を使い分けるよう指示
+
+### クロス PC 戦略
+- 元データ（SESSION_HISTORY 等）は Google Drive 経由で全 PC 同期 = 共通土台
+- ベクトル DB は **PC ごとにローカル**（SQLite + cloud sync は腐敗の既知問題）
+- 各 PC で独立にインデックス構築。`~/.claude-recall/index.db` 等に格納
 
 ## アイデアメモ
 - `/recall-proj <プロジェクト名> <キーワード>` で特定プロジェクトに限定検索
 - `/timeline <期間>` で時系列ダイジェスト
-- Roadmap の未完了タスク横断リスト（`/todo` で全プロジェクトの TODO をサマリー）
-- Session 番号指定での詳細参照（`/session 26` → セッション#26 の要約と主要やり取り）
+- 全プロジェクトの未完了 TODO を横断サマリーする `/todo`
+- セッション番号指定での詳細参照（`/session 26` → セッション#26 の要約と主要やり取り）
 
-## 備忘（次回相談）
-- 検索対象を SESSION_HISTORY.md のみにするか、DEVLOG/HANDOFF まで広げるか → 使ってみて判断
-- deploy.sh を Mac/Win 両対応にするか、別々に書くか
-- プロジェクト認識の正規表現（`_Apps2026/*`, `_other-projects/*`）を固定するか configurable にするか
+## 解決済み備忘
+- ~~検索対象を SESSION_HISTORY のみにするか、DEVLOG/HANDOFF まで広げるか~~ → SESSION_HISTORY + HANDOFF + DEVLOG に確定
+- ~~deploy.sh を Mac/Win 両対応にするか、別々に書くか~~ → 1 本で両対応（uname 不要、`-d` 存在チェックで分岐）
