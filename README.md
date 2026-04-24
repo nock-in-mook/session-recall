@@ -46,10 +46,25 @@ session-recall/
 ├── ROADMAP.md                      フェーズ計画
 ├── DEVLOG.md                       開発ログ
 ├── SESSION_HISTORY.md              セッション履歴
-├── skills/recall/                  /recall スラッシュコマンド実装
-│   ├── skill.md                    Claude が読むスキル定義
-│   └── search.sh                   実処理
+├── SESSION_LOG.md                  /end 時の書き出し先
+├── commands/
+│   └── recall.md                   /recall スキル定義（Claude が解釈する）
+├── scripts/
+│   └── search.sh                   実処理（複数キーワード AND、ripgrep 優先）
 ├── instructions/
 │   └── claude_md_patch.md          global CLAUDE.md に追加する指示文
-└── deploy.sh                       本番反映スクリプト
+└── deploy.sh                       本番反映スクリプト（Mac/Win 両対応、冪等）
 ```
+
+## デプロイ後の配置
+
+`./deploy.sh` を実行すると以下に展開される：
+
+```
+~/.claude/CLAUDE.md                                       ← マーカー間ブロック注入
+_claude-sync/CLAUDE.md                                    ← マーカー間ブロック注入（Win 同期用）
+_claude-sync/commands/recall.md                           ← /recall スキル
+_claude-sync/session-recall/search.sh                     ← 実処理スクリプト
+```
+
+冪等性あり: 差分なしならバックアップも作らない。再 deploy で v1 → v2 などのバージョン置換も自動。

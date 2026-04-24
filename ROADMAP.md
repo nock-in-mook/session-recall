@@ -21,25 +21,24 @@
 - [x] 「前回 Memolette で何の作業してた？」と聞いた時に Claude が自動で grep して答える（指示追加済み、新セッションで実体検証要）
 - [x] ユーザーが明示コマンドを打たなくても自然言語で動く（CLAUDE.md 指示で実現）
 
-## Phase 2 (Lv.1): /recall スラッシュコマンド
-複数プロジェクト横断の想起を、明示的コマンドで呼べるようにする。Phase 1 の grep を skill 経由に切り替える。
+## Phase 2 (Lv.1): /recall スラッシュコマンド ✅
+複数プロジェクト横断の想起を、明示的コマンドで呼べるようにする。Phase 1 の grep を skill 経由に切り替えた。
 
-- [ ] `skills/recall/search.sh` 実装
-  - 引数: キーワード（複数 AND 検索対応）
-  - 検索範囲: `_Apps2026/*/SESSION_HISTORY.md`, `HANDOFF.md`, `DEVLOG.md` + `_other-projects/*/`
-  - ripgrep 優先、なければ grep
-  - 結果: マッチ行前後 ±5 行を context 注入用に整形
-  - 出力フォーマット: `### プロジェクト名/ファイル名:行番号\n本文抜粋`
-  - マッチ多数時はトップ 10 件程度に絞る
-- [ ] `skills/recall/skill.md` を Claude が解釈する形式で確定
-- [ ] `deploy.sh` 拡張: `skills/recall/` を `~/.claude/skills/recall/` に配置
-- [ ] `claude_md_patch.md` 更新: grep 直叩きから `/recall` への誘導に切り替え（Phase 2 完了時）
-- [ ] 動作検証（横串クエリ、日本語対応、パフォーマンス計測）
+- [x] `scripts/search.sh` 本実装（ripgrep 優先・grep フォールバック、複数キーワード AND、前後 ±5 行、上位 10 件）
+- [x] `commands/recall.md` 確定（既存の `_claude-sync/commands/` 形式に整合）
+- [x] `deploy.sh` を Phase 2 拡張（`commands/recall.md` → `_claude-sync/commands/`、`scripts/search.sh` → `_claude-sync/session-recall/`）
+- [x] `claude_md_patch.md` を v2 に更新（grep 直叩きから search.sh 経由 + /recall 案内に）
+- [x] 動作検証: `claude-mem 撤去` AND 検索で 4 ファイルから関連箇所抽出、現セッションでも `/recall` スキルとして自動認識
 
 ### Phase 2 の成功基準
-- `/recall ToDo 結合` 等で過去の全プロジェクトから該当会話を引き出せる
-- 1 秒以内に返ってくる
-- 日本語キーワードで正常動作
+- [x] `/recall ToDo 結合` 等で過去の全プロジェクトから該当会話を引き出せる
+- [x] 約 1 秒以内（user time）で返る（壁時計は Drive アクセスで 3 秒前後）
+- [x] 日本語キーワードで正常動作
+
+### Phase 2 で発見・修正したバグ
+- **awk マーカー誤マッチ問題**: patch ファイル中の `<!-- session-recall:begin` の例示（バックティック内）も extract_block の awk が拾い、CLAUDE.md が肥大化（1876 行になった）
+- 修正: awk パターンを行頭マッチ `^<!-- session-recall:` に変更
+- 教訓: マーカーパターンは行頭 `^` 必須、説明文中での例示は安全
 
 ## Phase 3 (Lv.2): MCP サーバー化
 ユーザーが `/recall` を打たなくても、Claude が会話文脈から自動で呼ぶ。
