@@ -46,6 +46,10 @@ if [ -z "$SCRIPT" ]; then
     exit 0
 fi
 
+# /end の並列書き出し（HANDOFF/SESSION_HISTORY/SESSION_LOG）を待ってから mtime 比較する
+# 待たないと書き出し前の mtime でインデックスが走り、最新セッション分を取りこぼす（#5 で実際に発生）
+sleep 30
+
 # 増分更新（mtime 変更ファイルのみ再埋め込み）
 "$VENV_PY" "$SCRIPT" --db "$INDEX_DB" --quiet >/dev/null 2>&1
 exit 0

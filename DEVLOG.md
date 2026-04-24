@@ -231,3 +231,26 @@
 ### 残課題
 - 別 PC（Windows 含む）での全 13 工程動作確認
 - /end が実際に呼ばれた際に update_index.sh が起動するか実体検証（次回 /end で確認可能）
+
+## 2026-04-24: Phase 5.1 バグ修正（/end フックの競合条件）
+
+### 症状
+セッション #5 の実体検証で、フックは走ったのに最新セッションの HANDOFF.md / SESSION_HISTORY.md がインデックスに未反映。
+
+| 指標 | 値 |
+|---|---|
+| DB indexed_at | 22:18:35 |
+| SESSION_HISTORY.md 実ファイル mtime | 22:18:43（8 秒後） |
+| HANDOFF.md 実ファイル mtime | 22:18:45（10 秒後） |
+
+### 原因
+`/end` Step 2.5 フックが Step 2（HANDOFF / SESSION_HISTORY / SESSION_LOG の並列書き出し）と並走し、書き出し完了前に mtime 比較が走って取りこぼし。毎回 1 セッション遅れで反映されるバグだった。
+
+### 修正（C 案: A + B の二重防衛）
+1. **A: `scripts/update_index.sh` に `sleep 30` 追加** — 書き出しを待ってから mtime 比較
+2. **B: `instructions/end_patch.md` のセクション名を Step 2.5 → Step 2.9** + 説明文に「Step 2 の並列処理完了後に実行」と明記 — Claude の解釈順序上も後ろに配置
+3. `_claude-sync/` 側の `update_index.sh` と `commands/end.md` にも反映
+
+### 検証
+1. セッション #5 分の取りこぼしは `update_index.sh` 手動実行で補完（SESSION_HISTORY.md chunks 21→27、file_mtime も現ファイルと一致）
+2. 修正版を競合シナリオで再現テスト: バックグラウンド起動 → 1 秒後に DEVLOG.md touch → sleep 30 後に update_index.sh が touch 後の新 mtime を正しく検出してインデックス反映 ✅

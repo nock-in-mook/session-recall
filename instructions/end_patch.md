@@ -10,11 +10,13 @@
 
 <!-- session-recall:end-hook:begin v1 -->
 
-## Step 2.5: session-recall インデックス自動更新（バックグラウンド）
+## Step 2.9: session-recall インデックス自動更新（Step 2 完了後・バックグラウンド）
 
-`/end` のセッション終了処理の一環として、最新セッションでの `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md` 追記分を session-recall のセマンティック検索インデックスに反映する。
+**Step 2 の並列書き出し（HANDOFF / SESSION_HISTORY / SESSION_LOG）が全て完了してから実行すること**。書き出し前に走ると最新セッション分を取りこぼす（セッション #5 で発生、修正履歴は session-recall/DEVLOG.md 参照）。
 
-- バックグラウンド実行で `/end` の終了を遅らせない
+最新セッションでの `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md` 追記分を session-recall のセマンティック検索インデックスに反映する。
+
+- バックグラウンド実行で `/end` の終了を遅らせない（スクリプト側で `sleep 30` 後に動き始めるため、書き出し完了を二重に保証）
 - 失敗しても無視（DB 未構築・venv 未セットアップ等の場合は内部でサイレントスキップ）
 - 増分更新なので変更ファイルがあるときだけ埋め込みが走る（数秒〜数十秒）
 
