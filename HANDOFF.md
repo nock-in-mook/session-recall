@@ -422,6 +422,18 @@ HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude
 
 **実証データ揃った:** Win 1 / 2 / 3 すべて v2.1.119、すべて MCP サーバー Connected、すべて deferred tools には ツール露出せず。**Windows 全機で v2.1.116〜 の custom stdio MCP regression を踏むことが確定**。
 
+### 既知バグ (#14 で発見): semantic.sh の Windows cp932 エンコードエラー
+**症状:** `bash semantic.sh "クエリ"` で検索結果に絵文字 (例: 📅 `\U0001f4c5`) が含まれると Windows Python の stdout デフォルトエンコード cp932 で `UnicodeEncodeError: 'cp932' codec can't encode character`。
+**原因:** Windows Python は stdout を cp932 (Shift-JIS) で開く。Linux/Mac は UTF-8 デフォルトなので無問題。
+**修正案:** `scripts/semantic.py` 冒頭に追加 (`PYTHONIOENCODING=utf-8` を `semantic.sh` で export でも可):
+```python
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+```
+**発見経緯:** `bash semantic.sh "Claude Code のセッションを別 PC で resume できる仕組み"` 実行時、結果に P3 Craft の `📅 2026-03-31 ...` ヘッダが入って死亡。
+**緊急度:** 中 (search.sh フォールバックで代替検索は可能、bash フォールバック全体としては機能継続)。
+**対応タイミング:** Mac での regression 確認 (Step 2) と独立、Mac テスト後 or 後日まとめて。
+
 ### Step 2: Mac での regression 確認 + PC 間等価性テスト
 1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認
    - 出れば: Mac は regression 未踏（Windows 固有 or 環境差）→ 原因切り分けの材料に
