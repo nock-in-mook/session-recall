@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-25 セッション #9 終了時（Windows 1台目 deploy テスト完了、index_build.py パス修正）
+最終更新: 2026-04-25 セッション #13（Win 2 台目 deploy 完了、Phase 7 実ファイル commit、MCP regression 再確認）
 
 ---
 
@@ -380,10 +380,10 @@ MCP regression 修正待ちの間も検索能力をロスしないよう、`sema
 3. **出ていなければ**: 引き続き regression 中。**bash semantic.sh / search.sh フォールバックで実用フル稼働中なので慌てる必要なし**。Claude Code リリースノートを定期確認、修正バージョンが出たら ENABLE_TOOL_SEARCH=false 設定を外して再テスト
 
 ### 今後の段取り（のっくりさんが宣言した順序、2026-04-25 確定）
-1. **残 Windows 2 台目に session-recall を deploy**（`bash deploy.sh` 一発で venv + index 構築まで完走するはず。1 台目 #9 でパスバグ修正済みなので素直に通る想定）
-2. **残 Windows 3 台目に session-recall を deploy**（同上）
-3. **両 Win で MCP regression 状況確認 + bash フォールバック動作確認**（`bash semantic.sh "テストクエリ"` が動けば OK）
-4. **Mac に戻って最終テスト**:
+1. ✅ **残 Windows 2 台目に session-recall を deploy** — セッション #13 で完了（後述）
+2. ⬜ **残 Windows 3 台目に session-recall を deploy**（同じく `bash deploy.sh` 一発、Phase 7 実ファイル commit 済みなので素直に通る）
+3. ⬜ **両 Win で MCP regression 状況確認 + bash フォールバック動作確認**（`bash semantic.sh "テストクエリ"` が動けば OK）
+4. ⬜ **Mac に戻って最終テスト**:
    - Mac でも MCP regression を踏んでないか確認（v2.1.116〜2.1.119 を Mac で起動した経験が直近にあったか不明、未確認）
    - 全 PC（Mac + Win × 3）で同じクエリを叩いて検索結果の等価性を確認（HANDOFF #8 の「PC 間等価性実証」を Win 含めて再演）
    - 等価 OK なら Phase 7 完全完了、session-recall プロジェクトとしては実用フェーズに移行
@@ -399,8 +399,22 @@ HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude
 - `.claude.json` を直接編集する際は **必ず Python json モジュール経由** で（sed/awk は日本語パスを含む JSON で破損リスク）。
 - Claude Code v2.1.116〜 の custom MCP regression は `ENABLE_TOOL_SEARCH=false` でも回避できなかった。bash CLI フォールバック (`search.sh` + `semantic.sh`) を持っておくのが最強の保険。
 
-### Step 2: 残り Windows 2台での deploy テスト
-- MCP 問題が解決してから
+### セッション #13 でやったこと（2026-04-25, Win 2 台目）
+**目的:** 別 Windows へ移動して session-recall をデプロイ。
+
+**やったこと:**
+1. **npm 版 → ネイティブ版に乗り換え**: 公式推奨（`irm https://claude.ai/install.ps1 | iex`）。`autoUpdatesChannel: "latest"` の自動更新が組み込みで動く v2.1.119 に。
+2. **`bash deploy.sh` 完走**: venv 構築 + index 構築（4355 chunks, 13.5 MB, 7.8 分）+ MCP 登録まで。
+3. **Phase 7 の実装ハルシネーション発覚**: HANDOFF と #12 コミット (`0af685a`) は「`semantic.py` / `semantic.sh` を `_claude-sync/` に新設、Drive 同期で全 PC 配布」と書いていたが、**実態は HANDOFF.md のテキスト追記のみで実ファイル不在**。Drive にも repo にも存在せず、bash フォールバック動作確認時にファイルなしで判明。
+4. **Phase 7 を本当に実装**: `scripts/semantic.py`（server.py の semantic_search を CLI 単体実装）+ `scripts/semantic.sh`（venv 探索 bash ラッパー）+ `deploy.sh` 更新（[14/15], [15/15] で _claude-sync 経由配布、ステップ番号 13→15）。コミット `68940d3`。
+5. **動作確認**: `bash semantic.sh "claude-mem を撤去した経緯" --limit 3` で距離 0.4 前後の関連段落を返却 ✓
+6. **MCP regression 再確認**: resume 後に deferred tools チェック → `mcp__session-recall__*` 不在、`claude mcp list` は Connected。**v2.1.119 でも regression 継続中**（Win 1 台目と同症状）。
+
+**教訓（メモリにも刻んだ）:** 「実装した」「追加した」と HANDOFF やコミットメッセージに書く前に、必ず実ファイル存在を `git ls-files` / `git status` 等で確認する。テキスト更新だけで「実装完了」と書く実装ハルシネーションは特にタチが悪い（commit 履歴は嘘を肯定する）。
+
+### Step 2: 残り Windows 3 台目での deploy テスト
+- 3 台目で `git pull` → `bash deploy.sh` → `bash semantic.sh "テストクエリ"` 動作確認の流れ
+- Phase 7 実ファイルは push 済みなので、3 台目では deploy.sh が普通に Phase 7 まで通る（Win 2 台目で発生した「ファイル不在」問題は再発しない）
 
 ### Step 3: 残課題
 1. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
