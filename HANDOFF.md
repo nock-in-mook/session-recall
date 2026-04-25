@@ -379,7 +379,16 @@ MCP regression 修正待ちの間も検索能力をロスしないよう、`sema
 2. **出ていれば**: regression 修正済み → MCP 経由でフル稼働、Windows 1 台目 完了 → 2 台目に進む
 3. **出ていなければ**: 引き続き regression 中。**bash semantic.sh / search.sh フォールバックで実用フル稼働中なので慌てる必要なし**。Claude Code リリースノートを定期確認、修正バージョンが出たら ENABLE_TOOL_SEARCH=false 設定を外して再テスト
 
-### Mac での次回起動時の確認（重要）
+### 今後の段取り（のっくりさんが宣言した順序、2026-04-25 確定）
+1. **残 Windows 2 台目に session-recall を deploy**（`bash deploy.sh` 一発で venv + index 構築まで完走するはず。1 台目 #9 でパスバグ修正済みなので素直に通る想定）
+2. **残 Windows 3 台目に session-recall を deploy**（同上）
+3. **両 Win で MCP regression 状況確認 + bash フォールバック動作確認**（`bash semantic.sh "テストクエリ"` が動けば OK）
+4. **Mac に戻って最終テスト**:
+   - Mac でも MCP regression を踏んでないか確認（v2.1.116〜2.1.119 を Mac で起動した経験が直近にあったか不明、未確認）
+   - 全 PC（Mac + Win × 3）で同じクエリを叩いて検索結果の等価性を確認（HANDOFF #8 の「PC 間等価性実証」を Win 含めて再演）
+   - 等価 OK なら Phase 7 完全完了、session-recall プロジェクトとしては実用フェーズに移行
+
+### Mac での起動時に必ず確認すること（重要）
 HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude Code が 2.1.116〜2.1.119 に上がってる。次に Mac セッション開始したら **Mac でも regression を踏んでないか必ず確認**:
 - `mcp__session-recall__*` が deferred tools に出ているか
 - 出ていれば Mac は無事、出ていなければ Mac も bash フォールバック運用に切り替え（semantic.sh は既に Drive 同期で配布済み、即動く）
