@@ -26,8 +26,13 @@ from sentence_transformers import SentenceTransformer
 
 # 検索対象ルート（Mac/Win 両対応、存在する方を採用）
 ROOTS_CANDIDATES = [
+    # Mac
     "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_Apps2026",
     "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_other-projects",
+    # Windows（Python ネイティブはドライブレター形式が必要）
+    "G:/マイドライブ/_Apps2026",
+    "G:/マイドライブ/_other-projects",
+    # Git Bash 形式（subprocess 経由で呼ばれるケース用）
     "/g/マイドライブ/_Apps2026",
     "/g/マイドライブ/_other-projects",
     "/G/マイドライブ/_Apps2026",
