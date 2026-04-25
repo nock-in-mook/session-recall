@@ -255,3 +255,23 @@ bash 3.2（macOS default）で `set -u` 下の空配列 `"${A[@]}"` が unbound 
 - 発火すれば `~/.claude/session-recall-index.db` の indexed_at がセッション開始直後（±10 秒以内）に更新される
 - 今この #8 の SESSION_HISTORY 追記が、次セッション冒頭で search / semantic ヒット対象になっていれば Phase 5.2 完全動作の証拠
 - Windows 機 deploy は継続して残課題
+
+---
+## #9 (2026-04-25) Windows 1台目 deploy テスト + パスバグ修正
+
+### Windows 1台目での deploy.sh テスト
+- `bash deploy.sh` 全 13 工程完走 ✅
+  - venv 作成（`py -3.14`）、mcp / sentence-transformers / sqlite-vec / PyTorch インストール成功
+  - MCP server を `claude mcp add --scope user` で `.claude.json` に登録
+- **バグ発見**: index_build.py が Windows で対象ファイル 0 件
+  - 原因: `ROOTS_CANDIDATES` が Git Bash 形式（`/g/`, `/G/`）のみ → Python ネイティブは `Path("/g/...").is_dir()` = False
+  - 修正: `G:/マイドライブ/_Apps2026` 等のドライブレター形式を追加
+  - 修正後に `--force` 再構築 → **64 ファイル、4310 chunks、13.5 MB**（Mac B の 4297 とほぼ同等）
+  - 処理時間 368 秒（Mac B の 90 秒より遅いが Windows + 初回なので想定内）
+
+### コミット
+- `f1874b6` fix: Windows Python でのパス探索を修正（G:/ ドライブレター形式を追加）
+
+### 次セッションでやること
+- この PC で Claude Code 再起動 → MCP tool 認識確認 + 検索テスト
+- 残り Windows 2台で deploy テスト（パス修正済みなので初回 deploy で index 構築成功するはず）

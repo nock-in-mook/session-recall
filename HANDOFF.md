@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-24 セッション #7 終了時（Phase 5.1 本番検証完了 + Phase 6「プロジェクト絞り込み」実装完了、新セッションで完成版挙動の観察へ）
+最終更新: 2026-04-25 セッション #9 終了時（Windows 1台目 deploy テスト完了、index_build.py パス修正）
 
 ---
 
@@ -284,33 +284,24 @@ _claude-sync/commands/end.md                         ← session-recall:end-hook
 
 ---
 
-## 7. 今すぐの次アクション（Phase 5.2 完了後 — 開始時フック実体観察へ）
+## 7. 今すぐの次アクション（Windows テスト継続）
 
-### Step 1: MCP tool の認識確認（resume 後）
-システムリマインダーで両 deferred tool:
-- `mcp__session-recall__session_recall_search`（project optional）
-- `mcp__session-recall__session_recall_semantic`（project optional）
+### Step 1: この PC で Claude Code 再起動 → MCP 動作確認
+- deploy.sh 完走 + index 構築済み（4310 chunks）なので、再起動すれば MCP tool が使えるはず
+- システムリマインダーに `mcp__session-recall__session_recall_search` / `session_recall_semantic` が出るか確認
+- 検索テスト: 過去参照の会話で自動発火するか
 
-### Step 2: Phase 5.2 実体観察（最重要、#8 で追加）
-セッション #8 で Phase 5.2 を追加（セッション開始時の DB 自動追いつき）。CLAUDE.md v6 の指示で、セッション開始時に Step 0 と並列で `nohup bash update_index.sh 0 &` が走るはず。
-1. 新セッション開始直後に `~/.claude/session-recall-index.db` の indexed_at が更新されるか
-2. 別 PC で `/end` 済みの最新追記が、このセッション内で即時検索ヒットするか
-3. Claude が start-hook を発火した会話ログに痕跡があるか
+### Step 2: 残り Windows 2台での deploy テスト
+- 同じ手順で `bash deploy.sh` → Claude Code 再起動 → 検索テスト
+- #9 で修正済みの `G:/` ドライブレター形式パスが効くので、index 構築は初回 deploy で成功するはず
 
-### Step 3: Phase 6 完成版挙動の継続観察
-- プロジェクト名が発言に出た時の自動 `project` 絞り込み
-- 曖昧クエリで `session_recall_semantic` の自動選択 + 適切な project 判断
-- #8 の Mac A / Mac B 実地検証で正常動作確認済み（「Memolette のトレー」で #002〜#003、「取っ手部分」で #005 TrapezoidTabClipper を要約提示）
-
-### Step 4: 残課題
-1. **Windows 機での全工程動作確認**: `py -3.14` 経由で venv 作成、PyTorch + sqlite-vec のインストール、MCP 起動、`bash deploy.sh` 1 発で全 13 工程完走するか
-   - #8 の Mac B 初回 deploy は 90 秒で完走（全 13 工程 exit 0、4297 chunks、DB 13.4 MB）、Windows も同様に通る想定だが実体未確認
-2. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
+### Step 3: 残課題
+1. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
 
 ### 補足
-- Claude Code 再起動後でも `Skill` ツール経由 `/recall` は使える（セッション関係なく動く）
-- `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く（Phase 6 以降）
-- **PC 間等価性実証**（#8）: Mac A ↔ Mac B の双方で同じ検索結果が出ることを確認（`claude --resume` + `~/.claude/projects/` symlink 同期 + 各 PC の DB 整合性の三点セットが機能）
+- `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く
+- **PC 間等価性実証**（#8）: Mac A ↔ Mac B で同じ検索結果確認済み
+- **Windows 1台目**（#9）: deploy 完走 + パスバグ修正 + index 構築成功（4310 chunks, 13.5 MB）
 
 ## 8. Phase 1〜3 で得た教訓（Phase 4 で活かす）
 
