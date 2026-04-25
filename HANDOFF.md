@@ -349,17 +349,32 @@ proj['enabledMcpjsonServers'] = ['session-recall']
 
 **次回 /exit → 再起動が必要。**
 
+### セッション #12 後半 真の真因: Claude Code v2.1.116〜 の regression
+**症状:** `enabledMcpjsonServers: ["session-recall"]` + `hasTrustDialogAccepted: true` を設定して再起動しても、deferred tools に `mcp__session-recall__*` が出ない。手動 smoke test では server side は完璧（initialize / tools/list で 2 ツール正常返却）。
+**判明:** Claude Code v2.1.116 以降の regression（GitHub Issue #51736）。custom stdio MCP server のツールが deferred tools 登録メカニズムから消失する既知バグ。built-in HTTP connector（Google 系 Gmail/Drive/Calendar）は動く症状と完全一致。
+**関連 issue:** #29443（Windows Server 2022 で同症状）, #51736（v2.1.116 以降の regression）
+
+### 回避策: `ENABLE_TOOL_SEARCH=false` で起動
+deferred tool mechanism を排除して全ツール upfront 読み込みに切り替える環境変数。
+```bash
+ENABLE_TOOL_SEARCH=false claude --resume
+```
+
+**永続化したい場合:** グローバル `~/.claude/settings.json` の `env` フィールドに `"ENABLE_TOOL_SEARCH": "false"` を追加すれば毎回打たなくて済む。
+副作用: 全ツール upfront 読み込みになるので毎セッションのコンテキスト初期消費がやや増える（数百トークン規模）。
+
 ### Step 2（次セッション開始時に最初にやること）
-1. **deferred tools に `mcp__session-recall__search` / `mcp__session-recall__semantic` が出ているか確認**
-2. **出ていれば**: `enabledMcpjsonServers` 設定が効いた → Windows 1台目 完了 → 2台目に進む
-3. **出ていなければ**: 真因の仮説が外れ。次の手:
+1. **`ENABLE_TOOL_SEARCH=false claude --resume` で起動した想定で**、deferred tools に `mcp__session-recall__search` / `mcp__session-recall__semantic` が出ているか確認（ToolSearch で `select:mcp__session-recall__search,mcp__session-recall__semantic`）
+2. **出ていれば**: 回避策 OK → 永続化するか相談（settings.json の env 追加） → Windows 1台目 完了 → 2台目に進む
+3. **出ていなければ**: 回避策も効かない。次の手:
+   - Claude Code を最新（regression 修正版があれば）にアップデート
    - Mac で同じ手順を試して Windows 固有問題か切り分け
-   - Claude Code の version とログ（`~/.claude/logs/` 等）を確認
 
 ### 教訓（次以降の PC 展開時に活かす）
 - Claude Code 2.x で project レベル `.mcp.json` を使う場合、**`.claude.json` の該当プロジェクトエントリで `enabledMcpjsonServers: ["<server名>"]` を明示的に設定する必要がある**。
 - `claude mcp list` の Connected ≠ セッションでツールが使える、という落とし穴あり。
 - `.claude.json` を直接編集する際は **必ず Python json モジュール経由** で（sed/awk は日本語パスを含む JSON で破損リスク）。
+- Claude Code v2.1.116〜 で custom MCP の tool 非露出 regression あり。`ENABLE_TOOL_SEARCH=false` で回避できる。
 
 ### Step 2: 残り Windows 2台での deploy テスト
 - MCP 問題が解決してから
