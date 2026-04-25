@@ -9,6 +9,8 @@
 #             + ~/.claude/session-recall-index.db が無ければ初回構築
 #  - Phase 5: scripts/update_index.sh 配置 + _claude-sync/commands/end.md に
 #             session-recall:end-hook ブロックを注入（/end 時に増分自動更新）
+#  - Phase 7: scripts/{semantic.py, semantic.sh} を _claude-sync 経由で配置
+#             （MCP regression 時の bash CLI フォールバック）
 # 全工程冪等（差分なしならバックアップも作らない）。
 
 set -euo pipefail
@@ -22,6 +24,8 @@ SERVER_PY="$SELF_DIR/scripts/server.py"
 RUN_SERVER_SH="$SELF_DIR/scripts/run_server.sh"
 INDEX_BUILD_PY="$SELF_DIR/scripts/index_build.py"
 UPDATE_INDEX_SH="$SELF_DIR/scripts/update_index.sh"
+SEMANTIC_PY="$SELF_DIR/scripts/semantic.py"
+SEMANTIC_SH="$SELF_DIR/scripts/semantic.sh"
 END_PATCH_FILE="$SELF_DIR/instructions/end_patch.md"
 VENV_DIR="$CLAUDE_HOME/session-recall-venv"
 INDEX_DB="$CLAUDE_HOME/session-recall-index.db"
@@ -339,91 +343,108 @@ register_mcp_server() {
 
 # === Phase 1: CLAUDE.md 注入 ===
 echo "─── Phase 1: CLAUDE.md 注入 ───"
-echo "[1/13] $CLAUDE_HOME/CLAUDE.md"
+echo "[1/15] $CLAUDE_HOME/CLAUDE.md"
 inject_into "$CLAUDE_HOME/CLAUDE.md"
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[2/13] $SYNC_DIR/CLAUDE.md"
+    echo "[2/15] $SYNC_DIR/CLAUDE.md"
     inject_into "$SYNC_DIR/CLAUDE.md"
 else
-    echo "[2/13] _claude-sync 未検出のためスキップ"
+    echo "[2/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 2: スキル & 検索スクリプト配置 ===
 echo "─── Phase 2: スキル & 検索スクリプト配置 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[3/13] $SYNC_DIR/commands/recall.md"
+    echo "[3/15] $SYNC_DIR/commands/recall.md"
     sync_file "$RECALL_MD" "$SYNC_DIR/commands/recall.md"
     echo ""
 
-    echo "[4/13] $SYNC_DIR/session-recall/search.sh"
+    echo "[4/15] $SYNC_DIR/session-recall/search.sh"
     sync_file "$SEARCH_SH" "$SYNC_DIR/session-recall/search.sh"
     chmod +x "$SYNC_DIR/session-recall/search.sh"
 else
-    echo "[3/13] _claude-sync 未検出のためスキップ"
-    echo "[4/13] _claude-sync 未検出のためスキップ"
+    echo "[3/15] _claude-sync 未検出のためスキップ"
+    echo "[4/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 3: MCP サーバー (キーワード検索) ===
 echo "─── Phase 3: MCP サーバー (キーワード検索) ───"
-echo "[5/13] venv セットアップ + mcp パッケージ ($VENV_DIR)"
+echo "[5/15] venv セットアップ + mcp パッケージ ($VENV_DIR)"
 setup_venv
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[6/13] $SYNC_DIR/session-recall/server.py"
+    echo "[6/15] $SYNC_DIR/session-recall/server.py"
     sync_file "$SERVER_PY" "$SYNC_DIR/session-recall/server.py"
     echo ""
 
-    echo "[7/13] $SYNC_DIR/session-recall/run_server.sh"
+    echo "[7/15] $SYNC_DIR/session-recall/run_server.sh"
     sync_file "$RUN_SERVER_SH" "$SYNC_DIR/session-recall/run_server.sh"
     chmod +x "$SYNC_DIR/session-recall/run_server.sh"
     echo ""
 
-    echo "[8/13] MCP server 登録 (claude mcp add --scope user)"
+    echo "[8/15] MCP server 登録 (claude mcp add --scope user)"
     register_mcp_server
 else
-    echo "[6/13] _claude-sync 未検出のためスキップ"
-    echo "[7/13] _claude-sync 未検出のためスキップ"
-    echo "[8/13] _claude-sync 未検出のためスキップ"
+    echo "[6/15] _claude-sync 未検出のためスキップ"
+    echo "[7/15] _claude-sync 未検出のためスキップ"
+    echo "[8/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 4: セマンティック検索 ===
 echo "─── Phase 4: セマンティック検索（埋め込み + ベクトル DB）───"
-echo "[9/13] sentence-transformers + sqlite-vec を venv に追加"
+echo "[9/15] sentence-transformers + sqlite-vec を venv に追加"
 setup_venv_phase4
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[10/13] $SYNC_DIR/session-recall/index_build.py"
+    echo "[10/15] $SYNC_DIR/session-recall/index_build.py"
     sync_file "$INDEX_BUILD_PY" "$SYNC_DIR/session-recall/index_build.py"
     chmod +x "$SYNC_DIR/session-recall/index_build.py"
 else
-    echo "[10/13] _claude-sync 未検出のためスキップ"
+    echo "[10/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
-echo "[11/13] index DB 構築 (PC ローカル: $INDEX_DB)"
+echo "[11/15] index DB 構築 (PC ローカル: $INDEX_DB)"
 build_index_if_missing
 echo ""
 
 # === Phase 5: /end フック（増分インデックス自動更新）===
 echo "─── Phase 5: /end フック（増分インデックス自動更新）───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[12/13] $SYNC_DIR/session-recall/update_index.sh"
+    echo "[12/15] $SYNC_DIR/session-recall/update_index.sh"
     sync_file "$UPDATE_INDEX_SH" "$SYNC_DIR/session-recall/update_index.sh"
     chmod +x "$SYNC_DIR/session-recall/update_index.sh"
     echo ""
 
-    echo "[13/13] $SYNC_DIR/commands/end.md (session-recall:end-hook ブロック注入)"
+    echo "[13/15] $SYNC_DIR/commands/end.md (session-recall:end-hook ブロック注入)"
     inject_end_hook "$SYNC_DIR/commands/end.md"
 else
-    echo "[12/13] _claude-sync 未検出のためスキップ"
-    echo "[13/13] _claude-sync 未検出のためスキップ"
+    echo "[12/15] _claude-sync 未検出のためスキップ"
+    echo "[13/15] _claude-sync 未検出のためスキップ"
+fi
+echo ""
+
+# === Phase 7: bash CLI フォールバック (semantic.py + semantic.sh) ===
+echo "─── Phase 7: bash CLI フォールバック（MCP regression 時の保険）───"
+if [ -n "$SYNC_DIR" ]; then
+    echo "[14/15] $SYNC_DIR/session-recall/semantic.py"
+    sync_file "$SEMANTIC_PY" "$SYNC_DIR/session-recall/semantic.py"
+    chmod +x "$SYNC_DIR/session-recall/semantic.py"
+    echo ""
+
+    echo "[15/15] $SYNC_DIR/session-recall/semantic.sh"
+    sync_file "$SEMANTIC_SH" "$SYNC_DIR/session-recall/semantic.sh"
+    chmod +x "$SYNC_DIR/session-recall/semantic.sh"
+else
+    echo "[14/15] _claude-sync 未検出のためスキップ"
+    echo "[15/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
