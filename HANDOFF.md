@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-25 セッション #13（Win 2 台目 deploy 完了、Phase 7 実ファイル commit、MCP regression 再確認）
+最終更新: 2026-04-25 セッション #14（Win 3 台目 deploy 完了、MCP regression 全 Win 機実証）
 
 ---
 
@@ -380,9 +380,9 @@ MCP regression 修正待ちの間も検索能力をロスしないよう、`sema
 3. **出ていなければ**: 引き続き regression 中。**bash semantic.sh / search.sh フォールバックで実用フル稼働中なので慌てる必要なし**。Claude Code リリースノートを定期確認、修正バージョンが出たら ENABLE_TOOL_SEARCH=false 設定を外して再テスト
 
 ### 今後の段取り（のっくりさんが宣言した順序、2026-04-25 確定）
-1. ✅ **残 Windows 2 台目に session-recall を deploy** — セッション #13 で完了（後述）
-2. ⬜ **残 Windows 3 台目に session-recall を deploy**（同じく `bash deploy.sh` 一発、Phase 7 実ファイル commit 済みなので素直に通る）
-3. ⬜ **両 Win で MCP regression 状況確認 + bash フォールバック動作確認**（`bash semantic.sh "テストクエリ"` が動けば OK）
+1. ✅ **残 Windows 2 台目に session-recall を deploy** — セッション #13 で完了
+2. ✅ **残 Windows 3 台目に session-recall を deploy** — セッション #14 で完了（後述）
+3. ✅ **全 Win で MCP regression 状況確認 + bash フォールバック動作確認** — 3 台すべて v2.1.119 で regression 継続中、bash semantic.sh / search.sh 動作 OK
 4. ⬜ **Mac に戻って最終テスト**:
    - Mac でも MCP regression を踏んでないか確認（v2.1.116〜2.1.119 を Mac で起動した経験が直近にあったか不明、未確認）
    - 全 PC（Mac + Win × 3）で同じクエリを叩いて検索結果の等価性を確認（HANDOFF #8 の「PC 間等価性実証」を Win 含めて再演）
@@ -412,17 +412,29 @@ HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude
 
 **教訓（メモリにも刻んだ）:** 「実装した」「追加した」と HANDOFF やコミットメッセージに書く前に、必ず実ファイル存在を `git ls-files` / `git status` 等で確認する。テキスト更新だけで「実装完了」と書く実装ハルシネーションは特にタチが悪い（commit 履歴は嘘を肯定する）。
 
-### Step 2: 残り Windows 3 台目での deploy テスト
-- 3 台目で `git pull` → `bash deploy.sh` → `bash semantic.sh "テストクエリ"` 動作確認の流れ
-- Phase 7 実ファイルは push 済みなので、3 台目では deploy.sh が普通に Phase 7 まで通る（Win 2 台目で発生した「ファイル不在」問題は再発しない）
+### セッション #14 でやったこと（2026-04-25, Win 3 台目）
+**目的:** Win 3 台目 deploy + MCP regression 確認。
 
-### Step 3: 残課題
-1. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
+**やったこと:**
+1. **`bash deploy.sh` 完走**: venv 構築 + Phase 4 系パッケージ (sentence-transformers + sqlite-vec) + index 構築 (14 MB) + MCP 登録 + Phase 7 配布 ([1/15]〜[15/15] 全成功)。Phase 7 実ファイルが repo に commit 済みのおかげで、Win 2 台目で食らった「ファイル不在」問題は再発せず素直に完走。
+2. **bash フォールバック動作確認**: `bash semantic.sh "claude-mem を撤去した経緯" --limit 3` で距離 0.403 / 0.414 / 0.426 の関連段落を Memolette-Flutter / session-recall から取得 ✓
+3. **MCP regression 確認**: `/exit` → `claude --resume` 後に ToolSearch で `mcp__session-recall__*` を検索 → "No matching deferred tools found"。`claude mcp list` は Connected。**Win 3 台目（v2.1.119）でも regression 継続**を実証。
+
+**実証データ揃った:** Win 1 / 2 / 3 すべて v2.1.119、すべて MCP サーバー Connected、すべて deferred tools には ツール露出せず。**Windows 全機で v2.1.116〜 の custom stdio MCP regression を踏むことが確定**。
+
+### Step 2: Mac での regression 確認 + PC 間等価性テスト
+1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認
+   - 出れば: Mac は regression 未踏（Windows 固有 or 環境差）→ 原因切り分けの材料に
+   - 出なければ: Mac も regression 中、bash フォールバックに切り替え（semantic.sh は Drive 同期で配布済み、即動く）
+2. **PC 間等価性テスト**: 同じクエリ（例: `bash semantic.sh "claude-mem を撤去した経緯"`）を Mac × Win 3 台で叩いて、上位ヒットが等価か確認。HANDOFF #8 で Mac A ↔ Mac B の等価性は確認済み、それを Win 含めた 4 機まで拡張する。
+3. 等価 OK なら Phase 7 完全完了 → session-recall プロジェクトは実用フェーズに移行。Phase 8 アイデア（時系列フィルタ、ハイブリッド検索、セッション番号指定参照）は必要に応じて後追い。
 
 ### 補足
 - `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く（MCP 不要のフォールバック）
 - **PC 間等価性実証**（#8）: Mac A ↔ Mac B で同じ検索結果確認済み
-- **Windows 1台目**（#9）: deploy 完走 + パスバグ修正 + index 構築成功（4310 chunks, 13.5 MB）
+- **Windows 1 台目**（#9）: deploy 完走 + パスバグ修正 + index 構築成功（4310 chunks, 13.5 MB）
+- **Windows 2 台目**（#13）: deploy 完走 + Phase 7 実ファイル新規実装・commit（4355 chunks, 13.5 MB）
+- **Windows 3 台目**（#14）: deploy 完走（Phase 7 含む全 15 工程素直に通る、index 14 MB）+ regression 実証
 
 ## 8. Phase 1〜3 で得た教訓（Phase 4 で活かす）
 
