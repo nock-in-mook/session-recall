@@ -284,22 +284,78 @@ _claude-sync/commands/end.md                         ← session-recall:end-hook
 
 ---
 
-## 7. 今すぐの次アクション（Windows テスト継続）
+## 7. 今すぐの次アクション（Windows MCP ツール認識問題の解決）
 
-### Step 1: この PC で Claude Code 再起動 → MCP 動作確認
-- deploy.sh 完走 + index 構築済み（4310 chunks）なので、再起動すれば MCP tool が使えるはず
-- システムリマインダーに `mcp__session-recall__session_recall_search` / `session_recall_semantic` が出るか確認
-- 検索テスト: 過去参照の会話で自動発火するか
+### 問題: MCP Connected だがツールが deferred tools に出ない
+
+**状況（セッション #10, #10.5 で確認）:**
+- `claude mcp list` → **session-recall: ✓ Connected** ✅
+- 手動 smoke test（initialize + tools/list）→ 正常応答、2 ツール返却 ✅
+- venv・index.db・server.py・run_server.sh → 全て正常 ✅
+- **だが `<available-deferred-tools>` に `mcp__session-recall__*` が出ない** ❌
+
+**試したこと（全て効果なし）:**
+1. `.mcp.json`（プロジェクトレベル）に登録 → 承認タイミング問題で効かず
+2. `claude mcp remove` → `claude mcp add --scope user` で再登録 → Connected になるが同じ
+3. Claude Code 再起動 2 回 → 変わらず
+4. permissions は `"allow": ["*"]` で問題なし
+5. settings.json に deny ルールなし
+
+**まだ試していないこと:**
+1. **Claude Code のバージョン更新**（現在 2.1.91）→ MCP ツール読み込みのバグが修正されている可能性
+2. **`--scope project` で追加**（`--scope user` でなく）→ プロジェクトスコープの方が読み込み優先度が高い可能性
+3. **`.mcp.json` を git tracked にして承認ダイアログを出させる**（untracked だと承認されない？）
+4. **Mac で同じ問題が起きるか確認**→ Mac では動いているなら Windows 固有の問題
+
+### 緊急: `.claude.json` が空になった（セッション #10.5 で発生）
+- `sed -i` で autoUpdates を書き換えようとして、日本語パス含む JSON が壊れた（0バイト化）
+- Claude Code 再起動すれば `.claude.json` は再生成される（統計データは失われるが実害なし）
+- **再起動後にやること:**
+  1. `claude mcp add session-recall --scope user -- bash "C:/Users/msp/.claude/session-recall-mcp.sh"` で MCP 再登録
+  2. settings.json 側の autoUpdates を有効化（`.claude.json` ではなく settings.json の方で設定すべき）
+  3. MCP ツールが deferred tools に出るか確認
+
+### Step 1（次セッション）: 上記の復旧 + MCP テスト
+- Claude Code は 2.1.91 → **2.1.119** にアップデート済み
+- `.claude.json` 再生成 → MCP 再登録 → ツール認識テスト
+- それでもダメなら `claude mcp add session-recall --scope project` を試す
+- それでもダメなら Mac で確認して Windows 固有問題か切り分け
+
+### セッション #11 でやったこと（2026-04-25, 14:15 頃）
+**症状:** 再起動して resume したが、deferred tools に `mcp__session-recall__*` が依然として出ない。
+**判明:** `claude mcp list` を叩いたら **session-recall の登録自体が消えていた**（Google 系 MCP 3 つしか出ない）。session #10.5 で `.claude.json` が壊れた → 再起動で再生成されたが、session-recall の登録は復活していなかった。
+**実行したコマンド:**
+```bash
+claude mcp add session-recall --scope user -- bash "C:/Users/msp/.claude/session-recall-mcp.sh"
+```
+**結果:** `claude mcp list` → **session-recall: ✓ Connected** ✅ に復活。
+**ただし:** このセッションの deferred tools には反映されない（セッション開始時に MCP ツール一覧が固定されるため）。次回 /exit → 再起動が必要。
+
+### セッション #12 でやったこと（2026-04-25）
+**症状:** resume 後も deferred tools に `mcp__session-recall__*` が出ない（user スコープで Connected なのに）。HANDOFF #11 末尾の「次に試すこと」リスト 1 番目を実行。
+**実行したコマンド:**
+```bash
+claude mcp remove session-recall              # user スコープ削除
+mv .mcp.json.bak .mcp.json                    # project スコープ用ファイル復活
+```
+**結果:** `claude mcp list` → session-recall: ✓ Connected（今度は project スコープ経由）。`.mcp.json` は untracked のまま（git track はまだしていない）。
+**次回 /exit → 再起動が必要。**
+
+### Step 2（次セッション開始時に最初にやること）
+1. **deferred tools に `mcp__session-recall__search` / `mcp__session-recall__semantic` が出ているか確認**
+2. **出ていれば**: project スコープが効いた。実際に呼んで動作確認 → Windows 1台目 完了 → 2台目に進む
+3. **出ていなければ**: project スコープでもダメ。次の手として:
+   - `.mcp.json` を git add してコミット → 承認ダイアログを出させる
+   - それでもダメなら Mac で同じ手順を試して Windows 固有問題か切り分け
 
 ### Step 2: 残り Windows 2台での deploy テスト
-- 同じ手順で `bash deploy.sh` → Claude Code 再起動 → 検索テスト
-- #9 で修正済みの `G:/` ドライブレター形式パスが効くので、index 構築は初回 deploy で成功するはず
+- MCP 問題が解決してから
 
 ### Step 3: 残課題
 1. **Phase 7 アイデア（必要に応じて）**: 時系列フィルタ、ハイブリッド検索、セッション番号指定参照
 
 ### 補足
-- `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く
+- `bash _claude-sync/session-recall/search.sh [--project <名前>] "キーワード"` 直叩きは常に動く（MCP 不要のフォールバック）
 - **PC 間等価性実証**（#8）: Mac A ↔ Mac B で同じ検索結果確認済み
 - **Windows 1台目**（#9）: deploy 完走 + パスバグ修正 + index 構築成功（4310 chunks, 13.5 MB）
 
