@@ -332,21 +332,34 @@ claude mcp add session-recall --scope user -- bash "C:/Users/msp/.claude/session
 **ただし:** このセッションの deferred tools には反映されない（セッション開始時に MCP ツール一覧が固定されるため）。次回 /exit → 再起動が必要。
 
 ### セッション #12 でやったこと（2026-04-25）
-**症状:** resume 後も deferred tools に `mcp__session-recall__*` が出ない（user スコープで Connected なのに）。HANDOFF #11 末尾の「次に試すこと」リスト 1 番目を実行。
-**実行したコマンド:**
+**症状(前半):** resume 後も deferred tools に `mcp__session-recall__*` が出ない（user スコープで Connected なのに）。
+**前半の対応:** project スコープに切り替え。
 ```bash
 claude mcp remove session-recall              # user スコープ削除
 mv .mcp.json.bak .mcp.json                    # project スコープ用ファイル復活
 ```
-**結果:** `claude mcp list` → session-recall: ✓ Connected（今度は project スコープ経由）。`.mcp.json` は untracked のまま（git track はまだしていない）。
+→ 再起動後も deferred tools に出ず（`claude mcp list` は Connected）。
+
+**症状(後半) 真因判明:** `.claude.json` の `projects."G:/マイドライブ/_Apps2026/session-recall".enabledMcpjsonServers` が `[]`（空配列）になっていた。これにより Claude Code は `.mcp.json` の session-recall を「未承認」扱いしてツールをロードしていなかった。`claude mcp list` の Connected 表示は MCP プロトコルの health check が通っているだけで、セッションへのツール露出とは別判定。
+**後半の対応:** Python で `.claude.json` を安全に書き換え（前回 sed で 0 バイト化した教訓）。
+```python
+proj['enabledMcpjsonServers'] = ['session-recall']
+```
+→ JSON 整合性 OK、ファイルサイズ 28KB 維持。
+
 **次回 /exit → 再起動が必要。**
 
 ### Step 2（次セッション開始時に最初にやること）
 1. **deferred tools に `mcp__session-recall__search` / `mcp__session-recall__semantic` が出ているか確認**
-2. **出ていれば**: project スコープが効いた。実際に呼んで動作確認 → Windows 1台目 完了 → 2台目に進む
-3. **出ていなければ**: project スコープでもダメ。次の手として:
-   - `.mcp.json` を git add してコミット → 承認ダイアログを出させる
-   - それでもダメなら Mac で同じ手順を試して Windows 固有問題か切り分け
+2. **出ていれば**: `enabledMcpjsonServers` 設定が効いた → Windows 1台目 完了 → 2台目に進む
+3. **出ていなければ**: 真因の仮説が外れ。次の手:
+   - Mac で同じ手順を試して Windows 固有問題か切り分け
+   - Claude Code の version とログ（`~/.claude/logs/` 等）を確認
+
+### 教訓（次以降の PC 展開時に活かす）
+- Claude Code 2.x で project レベル `.mcp.json` を使う場合、**`.claude.json` の該当プロジェクトエントリで `enabledMcpjsonServers: ["<server名>"]` を明示的に設定する必要がある**。
+- `claude mcp list` の Connected ≠ セッションでツールが使える、という落とし穴あり。
+- `.claude.json` を直接編集する際は **必ず Python json モジュール経由** で（sed/awk は日本語パスを含む JSON で破損リスク）。
 
 ### Step 2: 残り Windows 2台での deploy テスト
 - MCP 問題が解決してから
