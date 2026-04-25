@@ -354,27 +354,41 @@ proj['enabledMcpjsonServers'] = ['session-recall']
 **判明:** Claude Code v2.1.116 以降の regression（GitHub Issue #51736）。custom stdio MCP server のツールが deferred tools 登録メカニズムから消失する既知バグ。built-in HTTP connector（Google 系 Gmail/Drive/Calendar）は動く症状と完全一致。
 **関連 issue:** #29443（Windows Server 2022 で同症状）, #51736（v2.1.116 以降の regression）
 
-### 回避策: `ENABLE_TOOL_SEARCH=false` で起動
-deferred tool mechanism を排除して全ツール upfront 読み込みに切り替える環境変数。
-```bash
-ENABLE_TOOL_SEARCH=false claude --resume
-```
+### 試した回避策とその結果（記録）
+1. **`ENABLE_TOOL_SEARCH=false` を settings.json `env` に追加**: deferred mechanism は確かに無効化された（ToolSearch も "no matching" を返す）。**しかし MCP ツールは upfront にも出ない** → regression は deferred メカニズムだけでなくツール露出パス全体に及ぶことが判明。回避策不成立。
+2. **Claude Code アップデート**: 既に最新（v2.1.119）。npm に新しいバージョン無し。
 
-**永続化したい場合:** グローバル `~/.claude/settings.json` の `env` フィールドに `"ENABLE_TOOL_SEARCH": "false"` を追加すれば毎回打たなくて済む。
-副作用: 全ツール upfront 読み込みになるので毎セッションのコンテキスト初期消費がやや増える（数百トークン規模）。
+### 採用した着地点: bash CLI フォールバック (Phase 7)
+MCP regression 修正待ちの間も検索能力をロスしないよう、`semantic.sh` を新設。`search.sh`（キーワード）に並ぶ第二の bash ルート。
+
+**追加したファイル（`_claude-sync/session-recall/`、Drive 同期で全 PC 配布）:**
+- `semantic.py` — セマンティック検索の CLI 単体実装（multilingual-e5-small + sqlite-vec、server.py ロジックを移植）
+- `semantic.sh` — Mac/Win 両対応 bash ラッパー（venv の python を自動探索）
+
+**動作確認:** `bash semantic.sh "claude-mem を撤去した経緯" --limit 3` → Memolette-Flutter / session-recall 等から関連段落を距離 0.4 前後で正常返却（17 秒）。
+
+**速度トレードオフ:**
+- MCP 経由（理想）: server.py が常駐してモデルがメモリ上にあるため 100〜300ms
+- bash CLI 経由（保険）: 呼ぶたびに python 起動 + embedding モデル毎回ロード → 初回 5〜17 秒
+- 機能ロスは無し、速度のみ劣化。曖昧クエリは滅多に呼ばないので実用上ストレスは低い
+
+**CLAUDE.md フォールバック節更新:** `_claude-sync/CLAUDE.md` の「フォールバック手段（MCP tool が使えないとき）」に semantic.sh の手順と「MCP があれば MCP 優先、なければ bash」の自動判断ルールを追記。Claude が起動時にツール一覧を見て自動分岐する。
 
 ### Step 2（次セッション開始時に最初にやること）
-1. **`ENABLE_TOOL_SEARCH=false claude --resume` で起動した想定で**、deferred tools に `mcp__session-recall__search` / `mcp__session-recall__semantic` が出ているか確認（ToolSearch で `select:mcp__session-recall__search,mcp__session-recall__semantic`）
-2. **出ていれば**: 回避策 OK → 永続化するか相談（settings.json の env 追加） → Windows 1台目 完了 → 2台目に進む
-3. **出ていなければ**: 回避策も効かない。次の手:
-   - Claude Code を最新（regression 修正版があれば）にアップデート
-   - Mac で同じ手順を試して Windows 固有問題か切り分け
+1. **deferred tools に `mcp__session-recall__*` が出ているか確認**
+2. **出ていれば**: regression 修正済み → MCP 経由でフル稼働、Windows 1 台目 完了 → 2 台目に進む
+3. **出ていなければ**: 引き続き regression 中。**bash semantic.sh / search.sh フォールバックで実用フル稼働中なので慌てる必要なし**。Claude Code リリースノートを定期確認、修正バージョンが出たら ENABLE_TOOL_SEARCH=false 設定を外して再テスト
+
+### Mac での次回起動時の確認（重要）
+HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude Code が 2.1.116〜2.1.119 に上がってる。次に Mac セッション開始したら **Mac でも regression を踏んでないか必ず確認**:
+- `mcp__session-recall__*` が deferred tools に出ているか
+- 出ていれば Mac は無事、出ていなければ Mac も bash フォールバック運用に切り替え（semantic.sh は既に Drive 同期で配布済み、即動く）
 
 ### 教訓（次以降の PC 展開時に活かす）
 - Claude Code 2.x で project レベル `.mcp.json` を使う場合、**`.claude.json` の該当プロジェクトエントリで `enabledMcpjsonServers: ["<server名>"]` を明示的に設定する必要がある**。
 - `claude mcp list` の Connected ≠ セッションでツールが使える、という落とし穴あり。
 - `.claude.json` を直接編集する際は **必ず Python json モジュール経由** で（sed/awk は日本語パスを含む JSON で破損リスク）。
-- Claude Code v2.1.116〜 で custom MCP の tool 非露出 regression あり。`ENABLE_TOOL_SEARCH=false` で回避できる。
+- Claude Code v2.1.116〜 の custom MCP regression は `ENABLE_TOOL_SEARCH=false` でも回避できなかった。bash CLI フォールバック (`search.sh` + `semantic.sh`) を持っておくのが最強の保険。
 
 ### Step 2: 残り Windows 2台での deploy テスト
 - MCP 問題が解決してから
