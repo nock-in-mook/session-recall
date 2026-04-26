@@ -581,33 +581,63 @@ if hasattr(sys.stderr, "reconfigure"):
 - aeed7cdd 古版 (3 件 user 発言) → L260「やったよ！」が picker に
 - aeed7cdd 新版 (#16 全完結) → 「そだね。かつ、普段の終了処理もね。」が picker に
 
-### 残課題 (#19 以降)
+### #18 末 重要判断: Phase 8/10 撤去方針確定 ★
 
-**A. Phase 10 wrapper の Mac 側実機検証 (このセッションでは未完)**
-- Mac で `bash setup_mac.sh` 実行 → Step 4.6 が `.zshrc` に source 行追加するはず
-- ユーザー曰く「ダブルクリック起動だとダイアログ瞬閉じで結果見えず」「`type claude` で `/Users/nock_re/.local/bin/claude` (普通のコマンド)」 = wrapper 効いていない
-- → Mac で `bash ~/Library/CloudStorage/.../マイドライブ/_claude-sync/setup_mac.sh` をターミナル経由で実行 → 出力確認 → `.zshrc` source → `type claude` で `shell function` 表示確認、が次のステップ
-- Mac wrapper 効けば: 起動時にゴミ /exit 3 件削除 + 兄弟フォルダから自フォルダに copy が走る
+#17 + #18 で散々振り回された結果、ユーザーが **「PC 横断 resume プロジェクトはやめる」** 判断:
+- 理由: Drive 同期事故 (jsonl 巻き戻りでデータ消失リスク) が構造的に避けられない
+- 教訓: HANDOFF / SESSION_HISTORY 運用 = session-recall プロジェクトの本筋。jsonl 共有は付加的でリスク要因
+- 採用方針: **「正式 /end → 新規セッションで HANDOFF/SESSION_HISTORY 読む」運用に統一**
 
-**B. Drive 同期事故の構造的対策 = Phase 11 候補**
-- Phase 10 wrapper は「同 PC ローカルの兄弟フォルダ間 copy」が責務、PC 間 Drive 同期競合は別問題
-- Drive 同期で複数 PC が同名 jsonl を更新すると、新 mtime が勝ち、古い側が上書きされる事故が起きる
-- 候補:
-  - (i) 複数 PC で同セッションを並行 active にしないルール (運用)
-  - (ii) jsonl への書き込みを排他制御 (技術的に困難、Claude Code 本体改修が必要)
-  - (iii) 完結セッションの jsonl を `~/.claude/projects-archive/` に移動して Drive 同期から外す (Drive 仮想 FS 制約で不可、Phase 9 と同じ詰み)
-  - (iv) 完結セッションの jsonl を読み取り専用にする (chmod 444、ただし claude が touch するならエラー)
-- 実用的には (i) しか残らない可能性。Phase 11 として再設計検討
+### 残課題 (#19 で実施): Phase 8/10 完全撤去
 
-**C. もう一台 Win 3 の同期確認 (Drive 同期で修復伝播)**
-- Win 3 (もう一台の HP-Pavilion-myhome 系) でも同様に aeed7cdd 修復が届くはず
-- 今回の Drive 同期事故 part 2 で巻き戻った状態なら、Win 3 でも 1.55MB のはず
-- 必要なら退避バックアップから再上書きで復元
+**A. ファイル削除**
+- `scripts/sync_sessions.sh` (Phase 8)
+- `scripts/register_hook.py` (Phase 8 用、settings.json hook 登録スクリプト)
+- `scripts/pre_claude_sync.sh` (Phase 10)
+- `scripts/cleanup_empty_sessions.sh` (Phase 10)
+- `scripts/claude_wrapper.sh` (Phase 10)
 
-**D. 別 PC で resume できない問題への運用ルール**
-- このセッション (a9c6df23) も Mac 1 では古版 948KB が picker に表示される (Win 1.9MB+ が届いていない)
-- 諦めて新規セッションで HANDOFF/SESSION_HISTORY 読んで継続が現実解
-- 「別 PC への移動 = 新規セッション」を運用ルール化候補
+**B. `_claude-sync/session-recall/` から配布物削除**
+- 上記 5 ファイルを `_claude-sync/session-recall/` から削除
+
+**C. settings.json の SessionStart hook 撤去**
+- `_claude-sync/settings.json` の `hooks.SessionStart` から `sync_sessions` エントリを削除
+- ただし他 hook (`start_remote_monitor` / `archive_prev_session`) は残す
+
+**D. .bashrc / .zshrc の wrapper source 行削除 (全 PC 個別)**
+- Win 3 台 + Mac 2 台で `# Claude wrapper (Phase 10:` で始まる行と source 行を削除
+- ユーザー側で各 PC で手動編集 or 一括削除スクリプト (`grep -v 'claude_wrapper'` で書き換え) を作る
+
+**E. setup.bat / setup_mac.sh の Step 4e / 4.6 削除**
+- `_claude-sync/setup.bat` Step 4e 削除
+- `_claude-sync/setup_mac.sh` Step 4.6 削除
+
+**F. deploy.sh を 20 工程 → 17 工程に戻す**
+- Phase 10 工程 [18/20][19/20][20/20] 削除
+- Phase 8 工程 [16/17][17/17] に戻す
+- 関連変数 (`PRE_CLAUDE_SYNC_SH` など) も削除
+
+**G. ROADMAP に「Phase 8/10 撤去 = 教訓」セクション追加**
+- 「Drive 同期事故が避けられない → PC 横断 resume は技術的に詰む」を Phase 9 と並列で記録
+- アイデアメモから Phase 11 候補削除
+
+**H. HANDOFF も大幅整理**
+- 「Phase 8/10 撤去済み」を冒頭近くに追記
+- 該当する古い節 (Phase 8 設計、#15 #16 #17 #18 の Phase 10 関連) は履歴として残しつつ、最新方針が一目で分かるようにする
+
+### Drive 圏外バックアップ (重要、撤去後も保持)
+- `~/aeed7cdd-backup/aeed7cdd-complete-1882349B-20260427-013556.jsonl` (#16 完結状態)
+- `~/.claude/projects-backup-before-merge/regular-20260427-013810/` (#17 修復前のフルバックアップ)
+- `~/.claude/projects-backup-before-merge/mac-cwd-20260427-021708/` (#18 応急処置前のフルバックアップ)
+- これらは記念碑 + 万一の復元用に保持。撤去作業後も削除しない。
+
+### 撤去後の運用 (固定方針)
+1. 各 PC で **新規 `claude` 起動** (resume せず)
+2. cwd は通常のプロジェクトフォルダ (例: `_Apps2026/session-recall`)
+3. CLAUDE.md (Step 0 で git pull) で最新コード取得
+4. HANDOFF.md / SESSION_HISTORY.md で前回の文脈把握
+5. 続きを実行 → /end で締め (HANDOFF/SESSION_HISTORY 自動更新)
+6. 別 PC に移動するときも同じ流れ。jsonl 共有はしない
 
 **B. もう一台 (Win 3) の修復確認**
 - HP-Pavilion-myhome は Win 2 か 3 のどちらかと判明 (gitattributes 未 setup なので Win 1 ではない、と特定)
