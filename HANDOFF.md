@@ -488,6 +488,64 @@ if hasattr(sys.stderr, "reconfigure"):
 - 並んだ場合: 開いて 1 ターン応答できるか（#14 で 1 ターン OK 実証済みだが Mac 側 sync_sessions.sh 経由は初）
 - Drive 同期で settings.json の SessionStart hook 登録が Mac に届いているか念のため確認
 
+### セッション #16 でやったこと (2026-04-26 夜)
+
+**目的:** 全 PC への gitattributes グローバル設定配布 + Phase 8 の Mac 側実機検証
+
+**1. Mac 側 Phase 8 完全検証 ✅**
+- Mac 1 (Mac 1 台目) で `claude --resume` → このセッション (aeed7cdd-...) が picker に並んだ → 開けた → 1 ターン応答 OK
+- Mac 側 SessionStart hook 自動発火確認: `~/.claude/session-recall-sync.log` に 14:33:37 と 14:34:00 の発火記録、copied=10 skipped=18 → 冪等性 OK
+- → **Phase 8 (PC 横断 resume 自動化) は Mac/Win 両方で動作実証完了** 🎉
+
+**2. CRLF/LF 偽差分問題の恒久対応**
+- 症状: Win→Mac の Drive 同期で改行コードが CRLF/LF 混在 → git diff に全ファイル分の偽差分
+- 対応:
+  - session-recall に `.gitattributes` 追加 (commit `ee9485d`): リポローカルで `* text=auto eol=lf` 宣言
+  - `_claude-sync/gitattributes_global` 新設 + 各 PC の `~/.gitattributes` を symlink + `git config --global core.attributesfile`
+  - `setup.bat` Step 4d / `setup_mac.sh` Step 4.5 に組み込み (新 PC 初回 setup でも自動配置)
+
+**配布状況:**
+- ✅ Mac 1 (本来のメイン): 手動 2 行で配置済み (14:45)
+- ✅ Mac 2 (KYO-Yaguchino-MacBook-Air): resume → 俺がセットアップ実行 (22:26)
+- ✅ Win 1 (Clinic-dell): resume → 俺がセットアップ実行 (22:34、MSYS=winsymlinks:nativestrict で symlink 作成)
+- ⬜ Win 2: resume が picker に出てこない (#17 で診断)
+- ⬜ Win 3: resume が picker に出てこない (#17 で診断)
+- ⬜ 同期未参加 Win 1 台: setup.bat 実行で全部入る (Step 4d 含む)
+
+### 残タスク (#17 で診断する: Win 2 / 3 の resume 不発)
+
+**症状:** Win 2 / 3 で `claude --resume` してもこのセッション (`aeed7cdd-5330-4aec-b72a-663850a60f1b`) が picker に出てこない。ユーザー曰く Google Drive クライアントは「最新」となっている。
+
+**Drive 経由 (Win 1 から) で確認できたこと:**
+- `_claude-sync/projects/` 配下に 3 つの session-recall 系フォルダ存在:
+  - `-Users-nock-re-Library-...---------Apps2026-session-recall` (Mac 用、aeed7cdd ✓)
+  - `G----------Apps2026-session-recall` (Win G ドライブ用、aeed7cdd ✓)
+  - `G----------Apps2026-session-recall (1)` (Drive 同期重複、aeed7cdd ✓)
+- → **Drive レベルでは全フォルダに jsonl 到達済み**
+
+**疑わしい原因 (要 Win 2 実機検証):**
+1. Win 2 / 3 の `~/.claude/projects/` が junction じゃない (setup.bat 未実行 / 壊れた / 古い設定のまま実 dir)
+2. Drive Desktop が **Stream モード**で、jsonl がオンデマンド DL 未取得 → picker のリストアップに見えない
+3. `claude --resume` の cwd が違う (session-recall フォルダ以外で起動している)
+4. `(1)` 重複フォルダに二次的 Drive 同期事故 (例: Win 2 の memory が `(1)` 側に行ってる)
+
+**次セッション (#17) で診断する手順:**
+1. Win 2 で `claude` **新規起動** (resume 効かないので新規でいい)
+   - cwd は `G:\マイドライブ\_Apps2026\session-recall` 必須（cwd が違うと診断にならない）
+2. 起動直後に「Win 2 で Phase 8 hook 不発、診断して」と指示
+3. 起動後 Claude が以下を確認:
+   - `ls -la ~/.claude/projects` ← lrwxrwxrwx になっていれば junction OK、drwxr-xr-x なら実 dir で同期されてない
+   - `cat ~/.claude/settings.json | python -c 'import sys,json; d=json.load(sys.stdin); print([h["command"][:80] for e in d["hooks"]["SessionStart"] for h in e["hooks"]])'` ← sync_sessions が登録されているか
+   - `cat ~/.claude/session-recall-sync.log 2>/dev/null | tail -3` ← hook 発火履歴
+   - `ls ~/.claude/projects/G----------Apps2026-session-recall/*.jsonl | head` ← jsonl がローカル展開されているか (Stream モード判定)
+4. 原因に応じた処置:
+   - junction 不在 → `setup.bat` 再実行 (Developer Mode 確認込み)
+   - Stream モード → エクスプローラで `_claude-sync/projects/G----...` を一度開く (オンデマンド DL 強制)、または Drive Desktop 設定で Mirror モード切替
+   - 個別バグ → 該当箇所修正
+5. 修正後 Win 2 で gitattributes セットアップ完了 (`bash` 経由 2 行でも `setup.bat` 経由でも可)
+6. Win 3 でも同じ手順で対処
+7. 同期未参加 Win も `setup.bat` ダブルクリックで一気に解決 (Step 4d 含む)
+
 ### Step 2: Mac での regression 確認 + PC 間等価性テスト
 1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認
    - 出れば: Mac は regression 未踏（Windows 固有 or 環境差）→ 原因切り分けの材料に
