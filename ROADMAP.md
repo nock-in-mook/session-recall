@@ -160,7 +160,7 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 - 修正案: `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')` 追加 (`PYTHONIOENCODING=utf-8` でも可)
 - 緊急度: 中（search.sh フォールバックで代替検索可）
 
-## Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) 計画中
+## Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) 実装完了 (実機検証待ち)
 別 PC で作ったセッションを `claude --resume` の picker に自動的に出すための仕組み。
 
 ### 背景
@@ -169,17 +169,25 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 - `Ctrl+A` で全プロジェクト横断表示はできるが、別 cwd セッションを選んでも開けない罠あり
 - セッション #14 で「Win 側で jsonl を Mac cwd フォルダに手動コピー → Mac で picker に出て resume 成功 + 1 ターン動作 OK」を実機確認済み
 
-### 設計
-1. `_claude-sync/session-recall/sync_sessions.sh` 新規作成（Drive 同期で全 PC 共有）
-2. SessionStart hook (`matcher: "startup|resume"`) で発火
-3. `~/.claude/projects/` を全走査、プロジェクト名末尾 (`Apps2026-XXX` / `other-projects-XXX`) が一致する他 PC フォルダを見つける
-4. 自フォルダに無い jsonl を **symlink** で配置（冪等）
-5. `deploy.sh` 拡張: `settings.json` の `hooks.SessionStart` に hook 登録
+### 設計（実装内容）
+- [x] `scripts/sync_sessions.sh` 新規実装: stdin から hook input JSON を受け取り、`transcript_path` の dirname を自フォルダ、cwd または `$PWD` の basename をプロジェクト末尾とする
+- [x] `~/.claude/projects/` を全走査し、末尾が `${project_tail}` または `${project_tail} (N)` (Drive 同期重複対応) で終わる兄弟フォルダの jsonl を **copy** で配置
+- [x] 既存ファイル skip で冪等、エラー時もサイレント exit 0 で起動ブロックしない
+- [x] `scripts/register_hook.py` 新規実装: jq が Win に無いため Python 標準 json で settings.json を冪等に編集（exit 0=追加 / 2=既登録 / 1=エラー）
+- [x] `deploy.sh` Phase 8 拡張 (工程 [16/17]/[17/17] 追加): sync_sessions.sh を `_claude-sync/session-recall/` に配布 + `register_hook.py` 経由で `_claude-sync/settings.json` の `hooks.SessionStart` に登録
+- [x] 既存 SessionStart hook (`start_remote_monitor.sh` / `archive_prev_session.sh`) と同じ `matcher: ""` の hooks 配列に並べる
 
-### 未知数（実機検証必要）
-- Drive 上の symlink が両 PC で透過的に機能するか
-- 機能するなら両 PC 同時起動禁止ルール（ロックファイル等）必要
-- 機能しなければ copy + 分岐許容にフォールバック
+### Win 側ローカル動作確認 (#15)
+- 単体実行: `transcript_path` ヒント付き JSON を stdin に流すと、自フォルダ (3 個 jsonl) に Mac (10 個) + `(1)` 重複フォルダ (8 個) の jsonl が copy された (copied=17 skipped=1)
+- 冪等性: 2 回目実行で copied=0 skipped=18
+- `register_hook.py` 単体: 1 回目 rc=0 (追加)、2 回目 rc=2 (既登録)。settings.json の SessionStart に 3 つの hook (start_remote_monitor / archive_prev_session / sync_sessions) が並ぶ構造を確認
+- `deploy.sh` 完走: Phase 1〜7 は冪等で「変更なし」、Phase 8 で sync_sessions.sh 配布 + hook 登録成功
+
+### 残検証 (Mac で実施)
+- `/exit` → `claude --resume` で SessionStart hook が picker 表示前に発火するか
+- 発火タイミングが picker 表示前なら、Win 由来 jsonl が picker に並ぶか
+- 開いた後の操作 (Edit/Write) が cwd 違いで壊れないか (#14 検証で 1 ターンは OK 実証済み)
+- Drive 上で settings.json の同期が他 PC に届くか (登録した hook が Mac でも発火するか)
 
 ### 検証済み（#14）
 - jsonl 内部に cwd が hard-coded されてるが、Mac で開いて 1 ターンの応答 OK（実用問題なし）
