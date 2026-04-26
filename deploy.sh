@@ -11,9 +11,8 @@
 #             session-recall:end-hook ブロックを注入（/end 時に増分自動更新）
 #  - Phase 7: scripts/{semantic.py, semantic.sh} を _claude-sync 経由で配置
 #             （MCP regression 時の bash CLI フォールバック）
-#  - Phase 8: scripts/sync_sessions.sh を _claude-sync/session-recall/ に配布
-#             + _claude-sync/settings.json の hooks.SessionStart に登録
-#             （PC 横断 resume 自動化: 他 PC 由来 jsonl を自 cwd に copy）
+#  注: Phase 8 (PC 横断 resume 自動化) と Phase 10 (claude wrapper) は #19 で撤去済み。
+#      Drive 同期事故が構造的に避けられないため運用ルール（正式 /end → 新規セッション）に統一。
 # 全工程冪等（差分なしならバックアップも作らない）。
 
 set -euo pipefail
@@ -29,10 +28,6 @@ INDEX_BUILD_PY="$SELF_DIR/scripts/index_build.py"
 UPDATE_INDEX_SH="$SELF_DIR/scripts/update_index.sh"
 SEMANTIC_PY="$SELF_DIR/scripts/semantic.py"
 SEMANTIC_SH="$SELF_DIR/scripts/semantic.sh"
-SYNC_SESSIONS_SH="$SELF_DIR/scripts/sync_sessions.sh"
-PRE_CLAUDE_SYNC_SH="$SELF_DIR/scripts/pre_claude_sync.sh"
-CLEANUP_EMPTY_SESSIONS_SH="$SELF_DIR/scripts/cleanup_empty_sessions.sh"
-CLAUDE_WRAPPER_SH="$SELF_DIR/scripts/claude_wrapper.sh"
 END_PATCH_FILE="$SELF_DIR/instructions/end_patch.md"
 VENV_DIR="$CLAUDE_HOME/session-recall-venv"
 INDEX_DB="$CLAUDE_HOME/session-recall-index.db"
@@ -348,211 +343,110 @@ register_mcp_server() {
     claude mcp add --scope user session-recall "$run_server" 2>&1 | sed 's/^/    /'
 }
 
-# SessionStart hook 登録（_claude-sync/settings.json の hooks.SessionStart に session-recall sync を追加）
-# 既存 hook（start_remote_monitor.sh / archive_prev_session.sh）と同じ matcher: "" の hooks 配列に並べる。
-# jq は Windows Git Bash に標準で無いため、Python の json モジュールで安全に編集（冪等）。
-register_session_start_hook() {
-    if [ -z "$SYNC_DIR" ]; then
-        echo "  _claude-sync 未検出のためスキップ"
-        return 0
-    fi
-
-    local settings="$SYNC_DIR/settings.json"
-    if [ ! -f "$settings" ]; then
-        echo "  $settings 不在のためスキップ"
-        return 0
-    fi
-
-    local register_py="$SELF_DIR/scripts/register_hook.py"
-    if [ ! -f "$register_py" ]; then
-        echo "  $register_py 不在のためスキップ" >&2
-        return 0
-    fi
-
-    # Python コマンド検出（venv の python は使わない・標準 json のみで動くから）
-    local py_cmd=""
-    if command -v py >/dev/null 2>&1 && py -3.14 --version >/dev/null 2>&1; then
-        py_cmd="py -3.14"
-    elif command -v python3 >/dev/null 2>&1; then
-        py_cmd="python3"
-    elif command -v python >/dev/null 2>&1; then
-        py_cmd="python"
-    else
-        echo "  Python 3 が無いため SessionStart hook 登録をスキップ" >&2
-        return 0
-    fi
-
-    # 既存 hook と揃えた Mac/Win 両対応のパス探索コマンド
-    local hook_cmd='bash -c '"'"'for p in /d/Dropbox "$HOME/Dropbox" "$HOME/Library/CloudStorage/Dropbox" /g/マイドライブ "$HOME/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ"; do s="$p/_claude-sync/session-recall/sync_sessions.sh"; [ -f "$s" ] && exec bash "$s"; done'"'"
-
-    # 事前バックアップ（add 時のみ残す。no-op なら下で削除）
-    local backup="${settings}.bak.$(date +%Y%m%d_%H%M%S)"
-    cp "$settings" "$backup"
-
-    set +e
-    $py_cmd "$register_py" "$settings" "$hook_cmd"
-    local rc=$?
-    set -e
-
-    case "$rc" in
-        0)
-            echo "  SessionStart hook (sync_sessions): 登録追加"
-            echo "    バックアップ: $backup"
-            ;;
-        2)
-            rm -f "$backup"
-            echo "  SessionStart hook (sync_sessions): 既登録のためスキップ"
-            ;;
-        *)
-            rm -f "$backup"
-            echo "  SessionStart hook (sync_sessions): 登録失敗 (rc=$rc)" >&2
-            ;;
-    esac
-}
-
 # === Phase 1: CLAUDE.md 注入 ===
 echo "─── Phase 1: CLAUDE.md 注入 ───"
-echo "[1/17] $CLAUDE_HOME/CLAUDE.md"
+echo "[1/15] $CLAUDE_HOME/CLAUDE.md"
 inject_into "$CLAUDE_HOME/CLAUDE.md"
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[2/17] $SYNC_DIR/CLAUDE.md"
+    echo "[2/15] $SYNC_DIR/CLAUDE.md"
     inject_into "$SYNC_DIR/CLAUDE.md"
 else
-    echo "[2/17] _claude-sync 未検出のためスキップ"
+    echo "[2/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 2: スキル & 検索スクリプト配置 ===
 echo "─── Phase 2: スキル & 検索スクリプト配置 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[3/17] $SYNC_DIR/commands/recall.md"
+    echo "[3/15] $SYNC_DIR/commands/recall.md"
     sync_file "$RECALL_MD" "$SYNC_DIR/commands/recall.md"
     echo ""
 
-    echo "[4/17] $SYNC_DIR/session-recall/search.sh"
+    echo "[4/15] $SYNC_DIR/session-recall/search.sh"
     sync_file "$SEARCH_SH" "$SYNC_DIR/session-recall/search.sh"
     chmod +x "$SYNC_DIR/session-recall/search.sh"
 else
-    echo "[3/17] _claude-sync 未検出のためスキップ"
-    echo "[4/17] _claude-sync 未検出のためスキップ"
+    echo "[3/15] _claude-sync 未検出のためスキップ"
+    echo "[4/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 3: MCP サーバー (キーワード検索) ===
 echo "─── Phase 3: MCP サーバー (キーワード検索) ───"
-echo "[5/17] venv セットアップ + mcp パッケージ ($VENV_DIR)"
+echo "[5/15] venv セットアップ + mcp パッケージ ($VENV_DIR)"
 setup_venv
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[6/17] $SYNC_DIR/session-recall/server.py"
+    echo "[6/15] $SYNC_DIR/session-recall/server.py"
     sync_file "$SERVER_PY" "$SYNC_DIR/session-recall/server.py"
     echo ""
 
-    echo "[7/17] $SYNC_DIR/session-recall/run_server.sh"
+    echo "[7/15] $SYNC_DIR/session-recall/run_server.sh"
     sync_file "$RUN_SERVER_SH" "$SYNC_DIR/session-recall/run_server.sh"
     chmod +x "$SYNC_DIR/session-recall/run_server.sh"
     echo ""
 
-    echo "[8/17] MCP server 登録 (claude mcp add --scope user)"
+    echo "[8/15] MCP server 登録 (claude mcp add --scope user)"
     register_mcp_server
 else
-    echo "[6/17] _claude-sync 未検出のためスキップ"
-    echo "[7/17] _claude-sync 未検出のためスキップ"
-    echo "[8/17] _claude-sync 未検出のためスキップ"
+    echo "[6/15] _claude-sync 未検出のためスキップ"
+    echo "[7/15] _claude-sync 未検出のためスキップ"
+    echo "[8/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 4: セマンティック検索 ===
 echo "─── Phase 4: セマンティック検索（埋め込み + ベクトル DB）───"
-echo "[9/17] sentence-transformers + sqlite-vec を venv に追加"
+echo "[9/15] sentence-transformers + sqlite-vec を venv に追加"
 setup_venv_phase4
 echo ""
 
 if [ -n "$SYNC_DIR" ]; then
-    echo "[10/17] $SYNC_DIR/session-recall/index_build.py"
+    echo "[10/15] $SYNC_DIR/session-recall/index_build.py"
     sync_file "$INDEX_BUILD_PY" "$SYNC_DIR/session-recall/index_build.py"
     chmod +x "$SYNC_DIR/session-recall/index_build.py"
 else
-    echo "[10/17] _claude-sync 未検出のためスキップ"
+    echo "[10/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
-echo "[11/17] index DB 構築 (PC ローカル: $INDEX_DB)"
+echo "[11/15] index DB 構築 (PC ローカル: $INDEX_DB)"
 build_index_if_missing
 echo ""
 
 # === Phase 5: /end フック（増分インデックス自動更新）===
 echo "─── Phase 5: /end フック（増分インデックス自動更新）───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[12/17] $SYNC_DIR/session-recall/update_index.sh"
+    echo "[12/15] $SYNC_DIR/session-recall/update_index.sh"
     sync_file "$UPDATE_INDEX_SH" "$SYNC_DIR/session-recall/update_index.sh"
     chmod +x "$SYNC_DIR/session-recall/update_index.sh"
     echo ""
 
-    echo "[13/17] $SYNC_DIR/commands/end.md (session-recall:end-hook ブロック注入)"
+    echo "[13/15] $SYNC_DIR/commands/end.md (session-recall:end-hook ブロック注入)"
     inject_end_hook "$SYNC_DIR/commands/end.md"
 else
-    echo "[12/17] _claude-sync 未検出のためスキップ"
-    echo "[13/17] _claude-sync 未検出のためスキップ"
+    echo "[12/15] _claude-sync 未検出のためスキップ"
+    echo "[13/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 
 # === Phase 7: bash CLI フォールバック (semantic.py + semantic.sh) ===
 echo "─── Phase 7: bash CLI フォールバック（MCP regression 時の保険）───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[14/17] $SYNC_DIR/session-recall/semantic.py"
+    echo "[14/15] $SYNC_DIR/session-recall/semantic.py"
     sync_file "$SEMANTIC_PY" "$SYNC_DIR/session-recall/semantic.py"
     chmod +x "$SYNC_DIR/session-recall/semantic.py"
     echo ""
 
-    echo "[15/17] $SYNC_DIR/session-recall/semantic.sh"
+    echo "[15/15] $SYNC_DIR/session-recall/semantic.sh"
     sync_file "$SEMANTIC_SH" "$SYNC_DIR/session-recall/semantic.sh"
     chmod +x "$SYNC_DIR/session-recall/semantic.sh"
 else
-    echo "[14/17] _claude-sync 未検出のためスキップ"
-    echo "[15/17] _claude-sync 未検出のためスキップ"
-fi
-echo ""
-
-# === Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) ===
-echo "─── Phase 8: PC 横断 resume 自動化 ───"
-if [ -n "$SYNC_DIR" ]; then
-    echo "[16/20] $SYNC_DIR/session-recall/sync_sessions.sh"
-    sync_file "$SYNC_SESSIONS_SH" "$SYNC_DIR/session-recall/sync_sessions.sh"
-    chmod +x "$SYNC_DIR/session-recall/sync_sessions.sh"
-    echo ""
-
-    echo "[17/20] $SYNC_DIR/settings.json (hooks.SessionStart に sync_sessions 追加)"
-    register_session_start_hook
-else
-    echo "[16/20] _claude-sync 未検出のためスキップ"
-    echo "[17/20] _claude-sync 未検出のためスキップ"
-fi
-echo ""
-
-# === Phase 10: claude wrapper による起動時最新反映 + ゴミ jsonl 自動掃除 ===
-echo "─── Phase 10: claude wrapper による起動時最新反映 + ゴミ掃除 ───"
-if [ -n "$SYNC_DIR" ]; then
-    echo "[18/20] $SYNC_DIR/session-recall/pre_claude_sync.sh"
-    sync_file "$PRE_CLAUDE_SYNC_SH" "$SYNC_DIR/session-recall/pre_claude_sync.sh"
-    chmod +x "$SYNC_DIR/session-recall/pre_claude_sync.sh"
-    echo ""
-
-    echo "[19/20] $SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
-    sync_file "$CLEANUP_EMPTY_SESSIONS_SH" "$SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
-    chmod +x "$SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
-    echo ""
-
-    echo "[20/20] $SYNC_DIR/session-recall/claude_wrapper.sh"
-    sync_file "$CLAUDE_WRAPPER_SH" "$SYNC_DIR/session-recall/claude_wrapper.sh"
-    chmod +x "$SYNC_DIR/session-recall/claude_wrapper.sh"
-else
-    echo "[18/20] _claude-sync 未検出のためスキップ"
-    echo "[19/20] _claude-sync 未検出のためスキップ"
-    echo "[20/20] _claude-sync 未検出のためスキップ"
+    echo "[14/15] _claude-sync 未検出のためスキップ"
+    echo "[15/15] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 

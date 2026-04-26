@@ -1,6 +1,25 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-26 早朝 セッション #14 終了時（Win→Mac resume 検証成功 + Phase 8/9 設計確定）
+最終更新: 2026-04-27 セッション #19（Phase 8/10 完全撤去・運用方針確定）
+
+---
+
+## ⚠️ 最新方針 (#19, 2026-04-27 確定)
+
+**Phase 8 (PC 横断 resume) と Phase 10 (claude wrapper) は完全撤去された**。Drive 同期事故 (jsonl 巻き戻り → データ消失リスク) が構造的に避けられないため、jsonl 共有運用そのものを諦めた。
+
+### 確定運用フロー（PC 跨ぎでも同じ）
+1. 各 PC で **新規 `claude` 起動**（`--resume` しない）
+2. cwd は通常のプロジェクトフォルダ（例: `_Apps2026/session-recall`）
+3. CLAUDE.md Step 0 が自動で `git pull` → 最新コード取得
+4. `HANDOFF.md` / `SESSION_HISTORY.md` を読んで前回文脈把握
+5. 続きを実行 → `/end` で締め（HANDOFF/SESSION_HISTORY 自動更新 + commit/push）
+
+PC 横断は手動メンテのテキスト (HANDOFF / SESSION_HISTORY / DEVLOG) を介する方が頑健。これが session-recall プロジェクトの本筋。
+
+### 撤去後も残す保険
+- `~/aeed7cdd-backup/` (#16 完結 jsonl) は記念碑＋万一の復元用に保持
+- `~/.claude/projects-backup-before-merge/` (#17 #18 のフルバックアップ) も保持
 
 ---
 
@@ -588,42 +607,36 @@ if hasattr(sys.stderr, "reconfigure"):
 - 教訓: HANDOFF / SESSION_HISTORY 運用 = session-recall プロジェクトの本筋。jsonl 共有は付加的でリスク要因
 - 採用方針: **「正式 /end → 新規セッションで HANDOFF/SESSION_HISTORY 読む」運用に統一**
 
-### 残課題 (#19 で実施): Phase 8/10 完全撤去
+### #19 でやったこと: Phase 8/10 完全撤去 ✅ (2026-04-27)
 
-**A. ファイル削除**
-- `scripts/sync_sessions.sh` (Phase 8)
-- `scripts/register_hook.py` (Phase 8 用、settings.json hook 登録スクリプト)
-- `scripts/pre_claude_sync.sh` (Phase 10)
-- `scripts/cleanup_empty_sessions.sh` (Phase 10)
-- `scripts/claude_wrapper.sh` (Phase 10)
+**A. ✅ リポ scripts/ から 5 ファイル削除**
+- `sync_sessions.sh` / `register_hook.py` (Phase 8)
+- `pre_claude_sync.sh` / `cleanup_empty_sessions.sh` / `claude_wrapper.sh` (Phase 10)
 
-**B. `_claude-sync/session-recall/` から配布物削除**
-- 上記 5 ファイルを `_claude-sync/session-recall/` から削除
+**B. ✅ `_claude-sync/session-recall/` から配布物 4 ファイル削除**
+- `register_hook.py` 以外の 4 つ（register_hook.py は元々 _claude-sync には配布しない設計）
 
-**C. settings.json の SessionStart hook 撤去**
-- `_claude-sync/settings.json` の `hooks.SessionStart` から `sync_sessions` エントリを削除
-- ただし他 hook (`start_remote_monitor` / `archive_prev_session`) は残す
+**C. ✅ `_claude-sync/settings.json` の SessionStart hook から sync_sessions エントリ削除**
+- `start_remote_monitor` と `archive_prev_session` は残存
 
-**D. .bashrc / .zshrc の wrapper source 行削除 (全 PC 個別)**
-- Win 3 台 + Mac 2 台で `# Claude wrapper (Phase 10:` で始まる行と source 行を削除
-- ユーザー側で各 PC で手動編集 or 一括削除スクリプト (`grep -v 'claude_wrapper'` で書き換え) を作る
+**D. ✅ このPC の `.bashrc` から wrapper source 行削除**
+- 他 PC は次にそれぞれ起動した時に同様の対応が必要（ただし `claude_wrapper.sh` は既に削除済みなので source 行があっても fallthrough して無害）
 
-**E. setup.bat / setup_mac.sh の Step 4e / 4.6 削除**
-- `_claude-sync/setup.bat` Step 4e 削除
-- `_claude-sync/setup_mac.sh` Step 4.6 削除
+**E. ✅ `setup.bat` Step 4e / `setup_mac.sh` Step 4.6 削除**
+- 新 PC 初回 setup から wrapper 注入工程が消えた
 
-**F. deploy.sh を 20 工程 → 17 工程に戻す**
-- Phase 10 工程 [18/20][19/20][20/20] 削除
-- Phase 8 工程 [16/17][17/17] に戻す
-- 関連変数 (`PRE_CLAUDE_SYNC_SH` など) も削除
+**F. ✅ `deploy.sh` を 20 工程 → 15 工程に整理**
+- Phase 8 工程 [16/17][17/17] と Phase 10 工程 [18/20][19/20][20/20] を全削除
+- 変数 `SYNC_SESSIONS_SH` / `PRE_CLAUDE_SYNC_SH` / `CLEANUP_EMPTY_SESSIONS_SH` / `CLAUDE_WRAPPER_SH` 削除
+- 関数 `register_session_start_hook()` 削除
+- 工程番号を [1/15]〜[15/15] に統一（Phase 1〜7 のみ）
 
-**G. ROADMAP に「Phase 8/10 撤去 = 教訓」セクション追加**
-- 「Drive 同期事故が避けられない → PC 横断 resume は技術的に詰む」を Phase 9 と並列で記録
-- アイデアメモから Phase 11 候補削除
+**G. ✅ ROADMAP.md の Phase 8 を「撤去 = 教訓」セクションに書き換え**
+- Phase 9 と並列で「Drive 同期 + git/jsonl 共有は本質的に詰む」を記録
 
-**H. HANDOFF も大幅整理**
-- 「Phase 8/10 撤去済み」を冒頭近くに追記
-- 該当する古い節 (Phase 8 設計、#15 #16 #17 #18 の Phase 10 関連) は履歴として残しつつ、最新方針が一目で分かるようにする
+**H. ✅ HANDOFF.md 整理**
+- 冒頭に「⚠️ 最新方針 (#19) - 確定運用フロー」セクション追加
+- 古い節 (Phase 8 設計、#15〜#18 の試行錯誤) は履歴として残置
 
 ### Drive 圏外バックアップ (重要、撤去後も保持)
 - `~/aeed7cdd-backup/aeed7cdd-complete-1882349B-20260427-013556.jsonl` (#16 完結状態)
@@ -631,13 +644,7 @@ if hasattr(sys.stderr, "reconfigure"):
 - `~/.claude/projects-backup-before-merge/mac-cwd-20260427-021708/` (#18 応急処置前のフルバックアップ)
 - これらは記念碑 + 万一の復元用に保持。撤去作業後も削除しない。
 
-### 撤去後の運用 (固定方針)
-1. 各 PC で **新規 `claude` 起動** (resume せず)
-2. cwd は通常のプロジェクトフォルダ (例: `_Apps2026/session-recall`)
-3. CLAUDE.md (Step 0 で git pull) で最新コード取得
-4. HANDOFF.md / SESSION_HISTORY.md で前回の文脈把握
-5. 続きを実行 → /end で締め (HANDOFF/SESSION_HISTORY 自動更新)
-6. 別 PC に移動するときも同じ流れ。jsonl 共有はしない
+### #20 以降の残課題 (低優先度)
 
 **B. もう一台 (Win 3) の修復確認**
 - HP-Pavilion-myhome は Win 2 か 3 のどちらかと判明 (gitattributes 未 setup なので Win 1 ではない、と特定)

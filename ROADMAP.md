@@ -160,39 +160,31 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 - 修正 (#15): `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')` + `sys.stderr.reconfigure(encoding='utf-8')` 追加（Python 3.7+ の hasattr ガード付き、Linux/Mac は no-op）
 - Win 実機で「Claude Code のセッションを別 PC で resume できる仕組み」クエリ実行 → 距離 0.392 の関連段落が絵文字含めて正常出力されることを確認
 
-## Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) 実装完了 (実機検証待ち)
-別 PC で作ったセッションを `claude --resume` の picker に自動的に出すための仕組み。
+## Phase 8: PC 横断 resume 自動化 — ❌ 撤去 (#19, 2026-04-27)
 
-### 背景
-- `_claude-sync/projects/` symlink で jsonl は全 PC 共有されているが、`claude --resume` picker は **cwd フィルタ** → 別 PC のセッションが picker に出ない
-- 救済策の `claude --resume <uuid>` 直指定は手間（特にスマホリモコン操作だと厳しい）
-- `Ctrl+A` で全プロジェクト横断表示はできるが、別 cwd セッションを選んでも開けない罠あり
-- セッション #14 で「Win 側で jsonl を Mac cwd フォルダに手動コピー → Mac で picker に出て resume 成功 + 1 ターン動作 OK」を実機確認済み
+#15〜#18 で Mac/Win 双方の SessionStart hook 自動発火・picker 反映までは実証できたが、**Drive 同期事故が構造的に避けられない**ことが判明したため #19 で完全撤去。
 
-### 設計（実装内容）
-- [x] `scripts/sync_sessions.sh` 新規実装: stdin から hook input JSON を受け取り、`transcript_path` の dirname を自フォルダ、cwd または `$PWD` の basename をプロジェクト末尾とする
-- [x] `~/.claude/projects/` を全走査し、末尾が `${project_tail}` または `${project_tail} (N)` (Drive 同期重複対応) で終わる兄弟フォルダの jsonl を **copy** で配置
-- [x] 既存ファイル skip で冪等、エラー時もサイレント exit 0 で起動ブロックしない
-- [x] `scripts/register_hook.py` 新規実装: jq が Win に無いため Python 標準 json で settings.json を冪等に編集（exit 0=追加 / 2=既登録 / 1=エラー）
-- [x] `deploy.sh` Phase 8 拡張 (工程 [16/17]/[17/17] 追加): sync_sessions.sh を `_claude-sync/session-recall/` に配布 + `register_hook.py` 経由で `_claude-sync/settings.json` の `hooks.SessionStart` に登録
-- [x] 既存 SessionStart hook (`start_remote_monitor.sh` / `archive_prev_session.sh`) と同じ `matcher: ""` の hooks 配列に並べる
+### 撤去理由
+- `~/.claude/projects/` 配下の jsonl は Drive 同期対象 → 複数 PC が同時更新すると `(1)` 付きフォルダに分裂し、picker は正規フォルダしか見ないため壊れた途中状態を表示する事故が #17 で発生
+- #18 では Mac 側ローカルの古い mtime が「勝った」競合解決で Win 側の最新版 jsonl が巻き戻され、データ消失リスクが現実化
+- jsonl 共有は本筋（HANDOFF / SESSION_HISTORY 運用）から見ると付加機能。リスクが利益を上回ると判断
 
-### Win 側ローカル動作確認 (#15)
-- 単体実行: `transcript_path` ヒント付き JSON を stdin に流すと、自フォルダ (3 個 jsonl) に Mac (10 個) + `(1)` 重複フォルダ (8 個) の jsonl が copy された (copied=17 skipped=1)
-- 冪等性: 2 回目実行で copied=0 skipped=18
-- `register_hook.py` 単体: 1 回目 rc=0 (追加)、2 回目 rc=2 (既登録)。settings.json の SessionStart に 3 つの hook (start_remote_monitor / archive_prev_session / sync_sessions) が並ぶ構造を確認
-- `deploy.sh` 完走: Phase 1〜7 は冪等で「変更なし」、Phase 8 で sync_sessions.sh 配布 + hook 登録成功
+### 確定運用方針（#18 末判断）
+- 各 PC で **新規 `claude` 起動** (resume せず)
+- cwd は通常のプロジェクトフォルダ
+- CLAUDE.md Step 0 で git pull → HANDOFF / SESSION_HISTORY を読んで前回文脈把握
+- 続きを実行 → /end で締め (HANDOFF/SESSION_HISTORY 自動更新)
+- jsonl 共有は **しない**
 
-### 残検証 (Mac で実施)
-- `/exit` → `claude --resume` で SessionStart hook が picker 表示前に発火するか
-- 発火タイミングが picker 表示前なら、Win 由来 jsonl が picker に並ぶか
-- 開いた後の操作 (Edit/Write) が cwd 違いで壊れないか (#14 検証で 1 ターンは OK 実証済み)
-- Drive 上で settings.json の同期が他 PC に届くか (登録した hook が Mac でも発火するか)
+### 撤去内容 (#19)
+- リポと `_claude-sync/session-recall/` から `sync_sessions.sh` / `register_hook.py` 削除
+- `_claude-sync/settings.json` の `hooks.SessionStart` から sync_sessions エントリ削除
+- `deploy.sh` から Phase 8 工程 [16/17][17/17] と関連変数・関数削除
 
-### 検証済み（#14）
-- jsonl 内部に cwd が hard-coded されてるが、Mac で開いて 1 ターンの応答 OK（実用問題なし）
-- `claude --resume` の picker は cwd フィルタする仕様（claude-code-guide で公式ドキュメント確認）
-- `Ctrl+A` で picker 全表示はできるが、別 cwd セッションを選んでも開けない罠（要 UUID 直指定）
+### 教訓
+- Drive 同期 + git/jsonl 共有は本質的に詰む (Phase 9 の `.git/` symlink 不可と同根)
+- PC 横断は手動メンテのテキストファイル (HANDOFF / SESSION_HISTORY) を介する方が頑健
+- バックアップ jsonl は `~/aeed7cdd-backup/` 等に Drive 圏外保持 (撤去後も削除しない)
 
 ## Phase 9: .git Drive 同期問題の根本対策 — 技術的詰み、運用ルールで代替 (#15 で結論)
 
