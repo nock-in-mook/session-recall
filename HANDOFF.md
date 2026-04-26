@@ -422,17 +422,17 @@ HANDOFF #8 で確認した「Mac MCP 動作」は 4/24 時点。その後 Claude
 
 **実証データ揃った:** Win 1 / 2 / 3 すべて v2.1.119、すべて MCP サーバー Connected、すべて deferred tools には ツール露出せず。**Windows 全機で v2.1.116〜 の custom stdio MCP regression を踏むことが確定**。
 
-### 既知バグ (#14 で発見): semantic.sh の Windows cp932 エンコードエラー
+### 既知バグ (#14 で発見、#15 で修正済み): semantic.sh の Windows cp932 エンコードエラー
 **症状:** `bash semantic.sh "クエリ"` で検索結果に絵文字 (例: 📅 `\U0001f4c5`) が含まれると Windows Python の stdout デフォルトエンコード cp932 で `UnicodeEncodeError: 'cp932' codec can't encode character`。
 **原因:** Windows Python は stdout を cp932 (Shift-JIS) で開く。Linux/Mac は UTF-8 デフォルトなので無問題。
-**修正案:** `scripts/semantic.py` 冒頭に追加 (`PYTHONIOENCODING=utf-8` を `semantic.sh` で export でも可):
+**修正 (#15, commit `00f42c7`):** `scripts/semantic.py` 冒頭に hasattr ガード付きで追加:
 ```python
-import sys
-sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 ```
-**発見経緯:** `bash semantic.sh "Claude Code のセッションを別 PC で resume できる仕組み"` 実行時、結果に P3 Craft の `📅 2026-03-31 ...` ヘッダが入って死亡。
-**緊急度:** 中 (search.sh フォールバックで代替検索は可能、bash フォールバック全体としては機能継続)。
-**対応タイミング:** Mac での regression 確認 (Step 2) と独立、Mac テスト後 or 後日まとめて。
+**動作確認:** Win 実機で「Claude Code のセッションを別 PC で resume できる仕組み」クエリ → 距離 0.392 の関連段落が絵文字含めて正常出力 ✓
 
 ### セッション #14 終了時 (2026-04-26 早朝) の追加成果
 
@@ -457,6 +457,36 @@ sys.stdout.reconfigure(encoding='utf-8')
 - 復旧手順: `git fetch && git reset --hard origin/main`
 - 根本対策案: `.git/` だけ PC ローカルに symlink で逃がす (既存の Drive 配下他リポも同じ問題、段階対応)
 - ROADMAP に Phase 9 候補として追記
+
+### セッション #15 でやったこと (2026-04-26)
+
+**目的:** Phase 8 (PC 横断 resume 自動化) 実装 + Phase 9 (.git Drive 同期問題) 検討 + 既知バグ修正。
+
+**1. Phase 8 完全実装** (commit `ae71d71`)
+- `scripts/sync_sessions.sh` 新規: SessionStart hook から起動。stdin の hook input から `transcript_path` / `cwd` を抽出し、`~/.claude/projects/` 配下で末尾が一致する兄弟フォルダ（`(N)` 重複対応）の jsonl を自フォルダに **copy**。冪等。
+- `scripts/register_hook.py` 新規: jq が Win に無いため Python json で `settings.json` の `hooks.SessionStart` を冪等に編集 (exit 0=追加 / 2=既登録 / 1=エラー)。
+- `deploy.sh` を Phase 8 拡張 ([16/17][17/17] 追加): sync_sessions.sh を `_claude-sync/session-recall/` に配布 + `_claude-sync/settings.json` の hooks.SessionStart に `start_remote_monitor` / `archive_prev_session` と並べて登録。
+- **Win 単体テスト**: copied=17 skipped=1（Mac フォルダ 10 個 + `(1)` 重複 8 個から自フォルダに copy）、2 度目 copied=0 skipped=18 で冪等性 OK。
+- **Win 自動発火検証**: /exit → claude --resume で `~/.claude/session-recall-sync.log` に 14:07:04 と 14:07:17 の 2 行が追記され、SessionStart hook が startup と resume の両 matcher で確実に発火することを実証。
+
+**2. Phase 9 検討 → 技術的詰みを実証 → 運用ルールで代替** (commit `7d5fe0e`)
+- 当初案: `.git/` を PC ローカル symlink/junction で逃がす
+- **試した方式すべて失敗**:
+  - Win junction (`mklink /J`): Drive 仮想 FS は NTFS でないため拒否
+  - Win symlink (`mklink /D`): Drive クライアントが「このデバイスではシンボリックリンクがサポートされていません」
+  - Mac symlink: 「起動時のみ同期」「regular file 扱い」「PC ごとパス違い」で死亡
+  - Drive Desktop selective sync: サブフォルダ単位（.git/）の除外不可
+  - gitfile (`.git` を `gitdir: ...` テキスト): PC ごとパス違いで Drive 同期と毎回衝突
+- **採用代替**: `_claude-sync/CLAUDE.md` Step 0 に「git fetch → behind なら ff-only 試行 → 失敗時 reset --hard origin/main」を組み込み。push 済みコミットは GitHub から復元できるので、未 push WIP に気を付ければ実害ゼロ。
+
+**3. semantic.py の Windows cp932 stdout バグ修正** (commit `00f42c7`)
+- 上記「既知バグ」セクション参照
+- Win 実機で絵文字含む結果のクエリが正常出力されることを確認
+
+### 残課題 (#16 以降)
+- **Mac 側で resume picker への反映を検証**: Mac で `claude --resume` 起動時に Win 由来 jsonl が picker に並ぶか実機確認。Phase 8 の本来目的の最終検証。
+- 並んだ場合: 開いて 1 ターン応答できるか（#14 で 1 ターン OK 実証済みだが Mac 側 sync_sessions.sh 経由は初）
+- Drive 同期で settings.json の SessionStart hook 登録が Mac に届いているか念のため確認
 
 ### Step 2: Mac での regression 確認 + PC 間等価性テスト
 1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認
