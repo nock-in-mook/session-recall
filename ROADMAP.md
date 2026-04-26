@@ -146,6 +146,74 @@
 - deploy.sh 1 回目: CLAUDE.md v4→v5 置換、recall.md / search.sh / server.py 更新
 - deploy.sh 2 回目: 全 13 工程「変更なし」（冪等性 OK）
 
+## Phase 7: bash CLI フォールバック (semantic.sh / search.sh) ✅
+Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出が壊れる既知バグ #51736）対策。MCP 不在でもセマンティック検索が動く bash 単体ルートを新設。
+
+- [x] `scripts/semantic.py`: server.py の semantic_search を CLI 単体実装に移植
+- [x] `scripts/semantic.sh`: venv の python を Mac/Win 両対応で探索する bash ラッパー
+- [x] `deploy.sh` を 15 工程に拡張（[14/15], [15/15] で _claude-sync 経由配布）
+- [x] CLAUDE.md フォールバック節更新（MCP があれば優先、なければ bash 自動分岐）
+- [x] Win 1/2/3 台目で deploy + 動作確認、Mac は MCP 経由でフル稼働
+
+### 既知バグ (#14 で発見)
+- **semantic.sh の Windows cp932 エンコードエラー**: 検索結果に絵文字 (例: 📅) が含まれると `UnicodeEncodeError: 'cp932' codec can't encode character`
+- 修正案: `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')` 追加 (`PYTHONIOENCODING=utf-8` でも可)
+- 緊急度: 中（search.sh フォールバックで代替検索可）
+
+## Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) 計画中
+別 PC で作ったセッションを `claude --resume` の picker に自動的に出すための仕組み。
+
+### 背景
+- `_claude-sync/projects/` symlink で jsonl は全 PC 共有されているが、`claude --resume` picker は **cwd フィルタ** → 別 PC のセッションが picker に出ない
+- 救済策の `claude --resume <uuid>` 直指定は手間（特にスマホリモコン操作だと厳しい）
+- `Ctrl+A` で全プロジェクト横断表示はできるが、別 cwd セッションを選んでも開けない罠あり
+- セッション #14 で「Win 側で jsonl を Mac cwd フォルダに手動コピー → Mac で picker に出て resume 成功 + 1 ターン動作 OK」を実機確認済み
+
+### 設計
+1. `_claude-sync/session-recall/sync_sessions.sh` 新規作成（Drive 同期で全 PC 共有）
+2. SessionStart hook (`matcher: "startup|resume"`) で発火
+3. `~/.claude/projects/` を全走査、プロジェクト名末尾 (`Apps2026-XXX` / `other-projects-XXX`) が一致する他 PC フォルダを見つける
+4. 自フォルダに無い jsonl を **symlink** で配置（冪等）
+5. `deploy.sh` 拡張: `settings.json` の `hooks.SessionStart` に hook 登録
+
+### 未知数（実機検証必要）
+- Drive 上の symlink が両 PC で透過的に機能するか
+- 機能するなら両 PC 同時起動禁止ルール（ロックファイル等）必要
+- 機能しなければ copy + 分岐許容にフォールバック
+
+### 検証済み（#14）
+- jsonl 内部に cwd が hard-coded されてるが、Mac で開いて 1 ターンの応答 OK（実用問題なし）
+- `claude --resume` の picker は cwd フィルタする仕様（claude-code-guide で公式ドキュメント確認）
+- `Ctrl+A` で picker 全表示はできるが、別 cwd セッションを選んでも開けない罠（要 UUID 直指定）
+
+## Phase 9: .git Drive 同期問題の根本対策 (.git ローカル化) 候補
+Drive 配下の git リポジトリで `.git/` も Drive 同期されてしまう問題の根本対策。
+
+### 背景
+- `_Apps2026/session-recall/` は Drive 上 → `.git/` ディレクトリも同期対象
+- セッション #14 で Mac 側 Claude が古い `.git/` 状態で resume → Drive 同期で Win 側 `.git/` が `6ead100` (#12 終了時) に上書きされる事故発生
+- ローカルから push 済みコミット (`18d1f51` `89c8ead` 等) が消えて見える状態に
+- 復旧は `git fetch && git reset --hard origin/main` で可能（GitHub に残ってるので）、ただし毎回手動対応はリスク
+
+### 設計
+- `.git/` だけ PC ローカルに symlink で逃がす:
+  - 例: `_Apps2026/session-recall/.git` → `~/repos/session-recall/.git` (各 PC ローカル)
+- 各 PC のセットアップスクリプト（`setup.bat` / `setup_mac.sh`）に組み込んで自動化
+- 既存の Drive 配下他リポ（Memolette-Flutter, Reminder_Flutter, P3 Craft 等）も順次対応
+
+### メリット
+- ローカル `.git/` 上書き事故が原理的にゼロ
+- 複数 PC 同時 commit が Drive の「最終勝者」じゃなく **git の正規 merge** で解決される
+- git 哲学的にも正しい（`.git/` は本来ローカルメタデータ）
+
+### 不便
+- PC 切り替え時に `git pull` 必須（既に CLAUDE.md Step 0 にあるので運用変化なし）
+- 新 PC セットアップに `.git/` symlink 配置作業（自動化可能）
+- 既存全リポ順次対応必要（段階展開）
+
+### 緊急度
+中〜高（再発時に手動復旧で対処可、ただしセッションをまたぐたびに事故リスク）
+
 ## アイデアメモ
 - `/timeline <期間>` で時系列ダイジェスト
 - 全プロジェクトの未完了 TODO を横断サマリーする `/todo`（ROADMAP 運用と重複しないかは要検討）

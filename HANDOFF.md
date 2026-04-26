@@ -1,6 +1,6 @@
 # HANDOFF — session-recall
 
-最終更新: 2026-04-25 セッション #14（Win 3 台目 deploy 完了、MCP regression 全 Win 機実証）
+最終更新: 2026-04-26 早朝 セッション #14 終了時（Win→Mac resume 検証成功 + Phase 8/9 設計確定）
 
 ---
 
@@ -433,6 +433,30 @@ sys.stdout.reconfigure(encoding='utf-8')
 **発見経緯:** `bash semantic.sh "Claude Code のセッションを別 PC で resume できる仕組み"` 実行時、結果に P3 Craft の `📅 2026-03-31 ...` ヘッダが入って死亡。
 **緊急度:** 中 (search.sh フォールバックで代替検索は可能、bash フォールバック全体としては機能継続)。
 **対応タイミング:** Mac での regression 確認 (Step 2) と独立、Mac テスト後 or 後日まとめて。
+
+### セッション #14 終了時 (2026-04-26 早朝) の追加成果
+
+**1. Mac の MCP 状態確認:**
+- Mac で `mcp__session-recall__*` が deferred tools に正常表示されることを実機確認
+- → **MCP regression (#51736) は Windows 固有問題と確定**（v2.1.119 でも Mac は影響なし）
+
+**2. Win → Mac セッション resume の仕組み解明:**
+- `~/.claude/{commands, memory, projects, settings.json}` は全 PC で `_claude-sync/` への symlink、jsonl も Drive 同期で全 PC 共有
+- ただし `claude --resume` の picker は **cwd フィルタ** → Win cwd と Mac cwd で `~/.claude/projects/<encoded-cwd>/` フォルダが別物 → picker に出ない
+- `Ctrl+A` で全プロジェクト横断表示はできるが、別 cwd セッションを選んでも開けない罠（公式仕様）
+- **唯一の救済策は `claude --resume <session-uuid>` UUID 直指定** (cwd 縛り回避)
+- **実証**: Win 側で現セッションの jsonl を Mac cwd フォルダに手動コピー → Mac で picker に出て resume + 1 ターン応答 OK
+
+**3. Phase 8 設計確定 (実装は次セッション):**
+- `_claude-sync/session-recall/sync_sessions.sh` 新規 + SessionStart hook (`startup|resume`) で他 PC jsonl を自 cwd フォルダに symlink で自動配置
+- ROADMAP に詳細追記済み
+
+**4. git Drive 同期問題発覚 → Phase 9 候補化:**
+- 本セッション中に Mac 側 Claude が古い `.git/` 状態で resume → Drive 同期で Win 側 `.git/` が `6ead100` (#12 終了時) に上書きされた
+- ローカル commit が消えて見える事故発生（push 済みなので GitHub には残存）
+- 復旧手順: `git fetch && git reset --hard origin/main`
+- 根本対策案: `.git/` だけ PC ローカルに symlink で逃がす (既存の Drive 配下他リポも同じ問題、段階対応)
+- ROADMAP に Phase 9 候補として追記
 
 ### Step 2: Mac での regression 確認 + PC 間等価性テスト
 1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認

@@ -1186,3 +1186,51 @@ irm https://claude.ai/install.ps1 | iex
 
 ---
 ## #13 (2026-04-25): Win 2 台目 deploy 完了 + Phase 7 実装ハルシネーション修正
+
+---
+## #14 (2026-04-25 → 04-26): Win 3 台目 deploy + MCP regression 全 Win 機実証 + Win→Mac resume 検証成功 + Phase 8/9 設計
+
+### 主な作業
+- **Win 3 台目 deploy 完了**: `bash deploy.sh` 全 15 工程成功、index 14 MB / 4400+ chunks、MCP `Connected`
+- **MCP regression 全 Win 機実証**: Win 1/2/3 台目すべて v2.1.119 で `mcp__session-recall__*` が deferred tools に出ない
+- **Mac は MCP regression 未踏**: Mac で v2.1.119 でも tool が表示されることを実機確認 → **regression は Windows 固有問題と確定**
+
+### Win → Mac セッション resume 検証 (新発見)
+- 当初 Mac で resume できなかった原因を特定: **`claude --resume` の picker は cwd フィルタ**
+- Win cwd `G:\マイドライブ\_Apps2026\session-recall` と Mac cwd `/Users/.../session-recall` で `~/.claude/projects/<encoded-cwd>/` フォルダが別物
+- Mac picker は Mac cwd フォルダの jsonl しか見ないので Win セッションが出ない
+- `Ctrl+A` で全プロジェクト横断表示はできるが、別 cwd セッションを選んでも「コマンドで resume してくれ」と出るだけ（罠）
+- **救済策**: `claude --resume <session-uuid>` で UUID 直指定 (cwd 縛り回避)
+- **検証実績**: Win 側で現セッションの jsonl を Mac cwd フォルダにコピーで配置 → Mac で picker に表示 + 開けて 1 ターン応答 ✓
+
+### Phase 7 既知バグ発見: semantic.sh の Windows cp932 エンコードエラー
+- 検索結果に絵文字 (例: 📅) が含まれると Windows Python の stdout cp932 で `UnicodeEncodeError`
+- 修正案: `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')`
+- 緊急度: 中（search.sh フォールバックで代替検索可）
+
+### Phase 8 設計確定 (実装は次セッション)
+- `_claude-sync/session-recall/sync_sessions.sh` (新規) + SessionStart hook で他 PC jsonl を自 cwd フォルダに symlink で自動配置
+- ROADMAP に詳細追記済み
+
+### git Drive 同期問題発覚 → Phase 9 候補化
+- セッション中に Mac 側 Claude が古い `.git/` 状態で resume → Drive 同期で Win 側 `.git/` が `6ead100` (#12 終了時) に上書きされる事故発生
+- ローカルから push 済みコミット (`18d1f51` `89c8ead` 等) が消えて見える状態に
+- 復旧手順: `git fetch && git reset --hard origin/main` (GitHub に残ってるので)
+- 根本対策案 = Phase 9: `.git/` だけ PC ローカルに symlink で逃がす（既存の Drive 配下他リポも同じ問題、段階対応）
+- ROADMAP に Phase 9 候補として追記
+
+### 教訓 + メモリ
+- メモリ `reference_session_sync.md` 改訂: cwd 縛り picker の罠 + `Ctrl+A` の表示≠開ける罠 + UUID 直指定が唯一の救済策
+- 過去ログ (#8) に「Mac A → Mac B で resume 成功」記録があったが、cwd 違いが盲点だった
+- Mac 側 Claude が「同期遅延が原因」と誤推論する事故あり（実際は手動コピーで配置したから picker に出た、cwd 違いが真因）
+
+### コミット
+- `18d1f51` HANDOFF 更新: セッション #14 (Win 3 台目 deploy + MCP regression 全 Win 機実証)
+- `89c8ead` HANDOFF 更新: semantic.sh Windows cp932 バグを既知バグ記録
+- (今 /end 時点での追加コミット: HANDOFF 末尾更新 + SESSION_HISTORY #14 追記 + ROADMAP に Phase 7/8/9 追記)
+
+### 次のアクション
+1. **Phase 8 実装**: sync_sessions.sh + SessionStart hook 登録 + deploy.sh 拡張
+2. **Phase 9 実装**: `.git` ローカル化（setup.bat / setup_mac.sh への組み込み + 既存全 Drive リポ段階対応）
+3. **Phase 7 残バグ修正**: semantic.sh Windows cp932 (`sys.stdout.reconfigure(encoding='utf-8')`)
+4. **Mac PC 間等価性テスト**: Mac で `bash semantic.sh "claude-mem を撤去した経緯"` 等を叩いて Win 3 台と等価結果確認
