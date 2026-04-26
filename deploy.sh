@@ -30,6 +30,9 @@ UPDATE_INDEX_SH="$SELF_DIR/scripts/update_index.sh"
 SEMANTIC_PY="$SELF_DIR/scripts/semantic.py"
 SEMANTIC_SH="$SELF_DIR/scripts/semantic.sh"
 SYNC_SESSIONS_SH="$SELF_DIR/scripts/sync_sessions.sh"
+PRE_CLAUDE_SYNC_SH="$SELF_DIR/scripts/pre_claude_sync.sh"
+CLEANUP_EMPTY_SESSIONS_SH="$SELF_DIR/scripts/cleanup_empty_sessions.sh"
+CLAUDE_WRAPPER_SH="$SELF_DIR/scripts/claude_wrapper.sh"
 END_PATCH_FILE="$SELF_DIR/instructions/end_patch.md"
 VENV_DIR="$CLAUDE_HOME/session-recall-venv"
 INDEX_DB="$CLAUDE_HOME/session-recall-index.db"
@@ -517,16 +520,39 @@ echo ""
 # === Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) ===
 echo "─── Phase 8: PC 横断 resume 自動化 ───"
 if [ -n "$SYNC_DIR" ]; then
-    echo "[16/17] $SYNC_DIR/session-recall/sync_sessions.sh"
+    echo "[16/20] $SYNC_DIR/session-recall/sync_sessions.sh"
     sync_file "$SYNC_SESSIONS_SH" "$SYNC_DIR/session-recall/sync_sessions.sh"
     chmod +x "$SYNC_DIR/session-recall/sync_sessions.sh"
     echo ""
 
-    echo "[17/17] $SYNC_DIR/settings.json (hooks.SessionStart に sync_sessions 追加)"
+    echo "[17/20] $SYNC_DIR/settings.json (hooks.SessionStart に sync_sessions 追加)"
     register_session_start_hook
 else
-    echo "[16/17] _claude-sync 未検出のためスキップ"
-    echo "[17/17] _claude-sync 未検出のためスキップ"
+    echo "[16/20] _claude-sync 未検出のためスキップ"
+    echo "[17/20] _claude-sync 未検出のためスキップ"
+fi
+echo ""
+
+# === Phase 10: claude wrapper による起動時最新反映 + ゴミ jsonl 自動掃除 ===
+echo "─── Phase 10: claude wrapper による起動時最新反映 + ゴミ掃除 ───"
+if [ -n "$SYNC_DIR" ]; then
+    echo "[18/20] $SYNC_DIR/session-recall/pre_claude_sync.sh"
+    sync_file "$PRE_CLAUDE_SYNC_SH" "$SYNC_DIR/session-recall/pre_claude_sync.sh"
+    chmod +x "$SYNC_DIR/session-recall/pre_claude_sync.sh"
+    echo ""
+
+    echo "[19/20] $SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
+    sync_file "$CLEANUP_EMPTY_SESSIONS_SH" "$SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
+    chmod +x "$SYNC_DIR/session-recall/cleanup_empty_sessions.sh"
+    echo ""
+
+    echo "[20/20] $SYNC_DIR/session-recall/claude_wrapper.sh"
+    sync_file "$CLAUDE_WRAPPER_SH" "$SYNC_DIR/session-recall/claude_wrapper.sh"
+    chmod +x "$SYNC_DIR/session-recall/claude_wrapper.sh"
+else
+    echo "[18/20] _claude-sync 未検出のためスキップ"
+    echo "[19/20] _claude-sync 未検出のためスキップ"
+    echo "[20/20] _claude-sync 未検出のためスキップ"
 fi
 echo ""
 

@@ -228,6 +228,35 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 
 これで「push 済みコミットは GitHub から復元」「未 push WIP はユーザーが意識して commit 切る」運用が成立。事故起きても自動検知 + 復旧で実害ゼロ。
 
+## Phase 10: claude wrapper による起動時最新反映 + ゴミ jsonl 自動掃除 (#17 追加)
+
+### 背景
+Phase 8 の SessionStart hook は **picker 表示後** に発動する設計のため、`claude --resume` 1 回目では他 PC からの新規 jsonl が picker に出ない。「2 回起動 (即 /exit → 再 resume)」運用で回避できるが、即 /exit のたびに空ゴミセッション jsonl (例: b6e607f3 = 2.7KB / no user) が picker 候補に蓄積する。
+
+#17 末で「Mac の修復が反映されない問題」が露見し、wrapper 方式での「起動時最新即反映」需要が明確化。
+
+### 設計
+| 役割 | 場所 | 内容 |
+|---|---|---|
+| 起動前 jsonl 同期 | `_claude-sync/session-recall/scripts/pre_claude_sync.sh` | `sync_sessions.sh` を stdin なし版に再実装。`pwd` から cwd 算出 → encoded folder 名で自フォルダ特定 → 兄弟フォルダ jsonl を copy |
+| ゴミ掃除 | `_claude-sync/session-recall/scripts/cleanup_empty_sessions.sh` | 自フォルダの jsonl で「ユーザー発言 0 件 + mtime 5 分以上古い」ものを `~/.claude/projects-trash/` に移動 (削除でなくゴミ箱方式) |
+| claude function 定義 | `_claude-sync/session-recall/scripts/claude_wrapper.sh` | bash/zsh 両対応の `claude()` 関数。`pre_claude_sync.sh` + `cleanup_empty_sessions.sh` を実行してから本物 claude を起動 |
+| .bashrc/.zshrc 注入 | `setup.bat` Step 4e / `setup_mac.sh` Step 4.6 | `source $WRAPPER` 1 行を追加 (冪等) |
+
+### 期待効果
+- ✅ `claude --resume` 1 回で他 PC 由来の最新 jsonl が picker に並ぶ (起動時 sync 完了後に picker 表示)
+- ✅ 即 /exit ゴミセッションが picker から自動消滅
+- ✅ Mac の修復伝播も hook 待たず即時反映
+- ⚠️ claude 起動が 1〜10 秒遅くなる (jsonl 数 + Drive 状態による)
+- ⚠️ alias / function 上書きなので Claude Code アップデートで PATH 解決の影響受ける可能性
+
+### 実装メモ
+- `encode_cwd` 関数: cwd 文字列の `/`, `_`, `@`, `.` を `-` に置換 → `~/.claude/projects/<encoded>` を取る
+  - Mac の `/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_Apps2026/session-recall` → `-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall`
+  - Win の `G:\マイドライブ\_Apps2026\session-recall` → `G----------Apps2026-session-recall` (バックスラッシュとコロンも `-` 化、日本語も `-` 化される観察)
+- 兄弟フォルダ走査ロジックは `sync_sessions.sh` から流用
+- ゴミ掃除の判定: `jq` が Win に無いので Python 標準 json で「last user text count == 0」を抽出
+
 ## アイデアメモ
 - `/timeline <期間>` で時系列ダイジェスト
 - 全プロジェクトの未完了 TODO を横断サマリーする `/todo`（ROADMAP 運用と重複しないかは要検討）
