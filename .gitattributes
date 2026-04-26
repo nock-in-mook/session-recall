@@ -1,0 +1,12 @@
+# session-recall リポローカルの .gitattributes
+# Drive 同期による改行コード変動 (CRLF/LF) を git diff 対象外にする。
+# global ~/.gitattributes (=> _claude-sync/gitattributes_global) も同じ宣言だが、
+# リポ自身が持つことで clone 時にも自動で効く。
+
+* text=auto eol=lf
+
+# バイナリは触らない
+*.png   binary
+*.jpg   binary
+*.db    binary
+*.sqlite binary
