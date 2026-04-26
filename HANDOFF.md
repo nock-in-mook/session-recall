@@ -550,9 +550,10 @@ if hasattr(sys.stderr, "reconfigure"):
 
 ### 残課題 (#18 以降)
 
-**A. 修復後検証 (Win 2/3 で claude --resume → 「そだね。かつ、普段の終了処理もね。」選択 → 起動成功するか)**
-- このセッション #17 内では未検証 (/exit 後の確認待ち)
-- もし修復後も resume 失敗するなら、aeed7cdd jsonl の cwd 混在 (Win 489 + Mac 160) や末尾エントリパターンが Claude Code 側で処理不能 = Phase 8 設計の追加課題
+**A. 修復後検証 ✅ HP-Pavilion-myhome で実証完了 (#17 末)**
+- 修復直後に /exit → claude --resume → picker 1 件目に「そだね。かつ、普段の終了処理もね。」 1.8MB 11 minutes ago が表示される ← 古版「やったよ！」は消えた
+- 「そだね。」を選択 → セッション読み込み完了 → Resume Summary or Full の選択画面まで到達 ← ここまで来れば aeed7cdd 新版が正常にロード成功した証拠 (Win 2/3 で長らく不発だったポイント)
+- 結論: Drive 同期事故修復は完全に効く。aeed7cdd の #16 完結履歴は Win 2/3 でも永続 resume 可能
 
 **B. もう一台 (Win 3) の修復確認**
 - HP-Pavilion-myhome は Win 2 か 3 のどちらかと判明 (gitattributes 未 setup なので Win 1 ではない、と特定)
