@@ -155,10 +155,10 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 - [x] CLAUDE.md フォールバック節更新（MCP があれば優先、なければ bash 自動分岐）
 - [x] Win 1/2/3 台目で deploy + 動作確認、Mac は MCP 経由でフル稼働
 
-### 既知バグ (#14 で発見)
+### 既知バグ (#14 で発見、#15 で修正)
 - **semantic.sh の Windows cp932 エンコードエラー**: 検索結果に絵文字 (例: 📅) が含まれると `UnicodeEncodeError: 'cp932' codec can't encode character`
-- 修正案: `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')` 追加 (`PYTHONIOENCODING=utf-8` でも可)
-- 緊急度: 中（search.sh フォールバックで代替検索可）
+- 修正 (#15): `scripts/semantic.py` 冒頭に `sys.stdout.reconfigure(encoding='utf-8')` + `sys.stderr.reconfigure(encoding='utf-8')` 追加（Python 3.7+ の hasattr ガード付き、Linux/Mac は no-op）
+- Win 実機で「Claude Code のセッションを別 PC で resume できる仕組み」クエリ実行 → 距離 0.392 の関連段落が絵文字含めて正常出力されることを確認
 
 ## Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) 実装完了 (実機検証待ち)
 別 PC で作ったセッションを `claude --resume` の picker に自動的に出すための仕組み。

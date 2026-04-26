@@ -19,6 +19,14 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# Windows Python は stdout/stderr を cp932 (Shift-JIS) で開くため、
+# 検索結果に絵文字や cp932 範囲外文字が含まれると UnicodeEncodeError で死亡。
+# Python 3.7+ の reconfigure() で UTF-8 に強制（Linux/Mac は元から UTF-8 で no-op）。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import sqlite_vec
 from sentence_transformers import SentenceTransformer
 
