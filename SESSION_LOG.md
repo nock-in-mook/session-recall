@@ -572,3 +572,1010 @@ done
 ↓
 (作業)
 ↓
+
+🤖 Claude
+session_counter は #17。SESSION_HISTORY 確認 → 並列で HANDOFF + SESSION_HISTORY 更新と session_counter インクリメント。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+完了 ✅
+
+**#17 セッション締め:**
+
+| 項目 | 結果 |
+|---|---|
+| session_counter | 17 → 18 |
+| HANDOFF.md | #17 完了報告 + #18 以降の残課題に書き換え |
+| SESSION_HISTORY.md | #17 ヘッダ + 詳細サマリ追記 (3555 行) |
+| SESSION_LOG.md | 28KB 自動出力 |
+| git commit + push | `c365a4a` push 済み |
+| session-recall index | バックグラウンドで sleep 30 後に増分更新 |
+
+**次セッション #18 でやること:**
+1. `claude --resume` で picker に **「そだね。かつ、普段の終了処理もね。」** が表示されるか確認
+2. それを選んで起動できれば修復成功 → #18 として #16 続きを引き継いだ形
+3. 修復失敗なら、cwd 混在問題 (Win 489 + Mac 160) や末尾エントリ問題を追加調査
+4. Win 3 (もう一台) でも同様に Drive 同期事故修復が伝播しているか確認
+
+**`/exit` で終了してください。** これで万が一 resume 失敗しても、修復履歴・診断結果・コード状態は全部 GitHub に残ってる。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_014808.png このPCでresume！
+
+↓
+(作業)
+↓
+
+🤖 Claude
+★★★ **修復完全成功！** ★★★
+
+picker 1 件目に **「そだね。かつ、普段の終了処理もね。」 11 minutes ago 1.8MB** が出てる！これは aeed7cdd 新版 (1.88MB / 01:35) と完全一致。
+
+| Before (#17 開始時) | After (修復後) |
+|---|---|
+| やったよ！ 1.1MB 2 hours ago (古版) | **そだね。かつ、普段の終了処理もね。 1.8MB 11 minutes ago (新版)** ✅ |
+
+**そのまま「そだね。」を選んで resume してみて。** それで起動できたら #16 の続きから完全復元成功。
+
+副次発見: #17 セッション (a9c6df23) は今 picker に出てない = **Claude Code は「最後に active だったセッション」を picker から自動除外する仕様** っぽい (HANDOFF #14 の Mac picker 観察と整合)。これは知っておくと便利。
+
+resume してきて結果教えて。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_015007.png パーフェクト！
+
+↓
+(作業)
+↓
+
+🤖 Claude
+🎉 **完全復元成功！**
+
+画面上に #16 セッション最後の Claude 応答 (「DB 更新 / バックグラウンドで実行中」+ 「次セッション (#17) 案内」+ Win 2/3 診断手順) がそのまま表示されてる = **aeed7cdd の #16 完結状態から完全に履歴ロード成功**。
+
+**Drive 同期事故修復は完全に効いた:**
+- Win 2/3 picker 不発 → 修復後 「そだね。」 表示 → クリック → 完全 resume
+- (1) フォルダの新版 1.88MB が picker に正しく出て、選んで起動できた
+
+**「2h 55m old / 358.6k tokens」の選択画面について:**
+- **1 (Resume from summary, 推奨)**: トークン節約、長いセッションでは標準
+- **2 (Full session as-is)**: 履歴を完全保持、ただし 358k トークン消費
+- 1 で十分。要約からでも HANDOFF.md/SESSION_HISTORY.md があるから記憶ロスはない
+
+ただ、俺としては気になるのが…**今この会話、どこから来てる？** スクショを見せに戻ってきてくれたのが #17 セッション (a9c6df23) のターミナルなのか、それとも resume 試行画面のスクショだけ送って実際は resume 完了させていないのか。整理:
+- もし resume 1 を確定させて入っていけば、それは **#18 セッションとして aeed7cdd の続き**
+- このターミナル (#17) は /exit でも /end でもいいタイミング
+
+Win 3 と同期未参加 Win の対応はもうおまけ。Drive 同期で伝播するはずだから、各 PC で `claude --resume` して「そだね。」が出るかチェックすれば完了。
+
+お疲れさま！
+
+🧑 あなた
+これは、このセッションをexit→ピッカー、「そだね」に入りスクショ、そっちをexit→ピッカー、でこっちに戻ってきて貼り付け。だよ。
+
+🤖 Claude
+了解、流れ完全に把握 ✅
+
+要は **aeed7cdd 新版で Summary/Full 選択画面まで到達 = 完全ロード成功** を実証してから安全に戻ってきた、ってこと。修復は実証済み。
+
+**HP-Pavilion-myhome の Win 2/3 問題、完全クローズ。**
+
+技術的に整理しておくと：
+- 修復後 picker に新版 (1.8MB) 表示 ✅
+- 新版を選択 → ロード成功で Summary 選択画面到達 ✅ (これが Win 2/3 で長らく不発だった部分)
+- aeed7cdd の #16 完結履歴は永続的に Win 2/3 でも resume 可能になった
+
+この検証結果、SESSION_HISTORY/HANDOFF には書き残してないから 1 行追記して残しておく？「修復後 resume が Summary 画面まで到達することを実証」って 1 行入れとくと、#18 で別の Win 機を見るときに「修復後の正常動作はこういう状態」のリファレンスになる。
+
+要らないならこのまま `/exit` で OK、その場合 #17 は push 済みコミットでクローズ済み。どうする？
+
+🧑 あなた
+お、じゃあ書いておいて。それから残りの１台チェックしてくるよ
+
+↓
+(作業)
+↓
+
+🤖 Claude
+`3de1877` push 完了 ✅
+
+**Win 3 でやることの段取り:**
+
+1. **`claude --resume` を試す**
+   - picker 1 件目に **「そだね。かつ、普段の終了処理もね。」 1.8MB** が出ていれば → Drive 同期で修復伝播済み ✅
+   - まだ「やったよ！」 1.1MB が出ていれば → Win 3 でも修復必要
+
+2. **修復伝播していたら**: 「そだね。」を選択 → Summary 選択画面まで行ければ完全成功
+3. **修復未伝播なら**: 新規 claude 起動 (cwd は session-recall フォルダ) → 「Win 3 でも Phase 8 修復確認、診断して」と頼めば、新セッションの俺が HANDOFF 読んで判断 → 必要なら同じマージ実行
+
+Drive 同期は数十秒〜数分で伝播するけど、Win 3 が長くオフラインだったなら時間かかるかも。エクスプローラで `_claude-sync/projects/` を一度開くと Drive 同期がトリガーされて早くなる。
+
+行ってらっしゃい！結果報告待ってる。
+
+🧑 あなた
+よし、ばっちり。/exit
+
+🤖 Claude
+📡
+
+お疲れさま！Win 3 ばっちりなら全 PC 完了。`/exit` どうぞ。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+ちょっとまって、今度はMacで同期されなくなってるな…
+
+🤖 Claude
+📡
+
+状況把握する。並列で診断。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+Macでも/resumeしてピッカーのスクショとってみようか
+
+↓
+(作業)
+↓
+
+🤖 Claude
+📡
+
+OK、スクショ待ち。状況整理しつつ並行で確認したいこと：
+
+**現時点で見えてる事実 (この PC = HP-Pavilion-myhome から Drive 経由で観測):**
+
+| フォルダ | aeed7cdd 状態 |
+|---|---|
+| Win 正規 (修復済み) | **1.88MB / 04-27 01:56** ← 修復後さらに更新あり |
+| Mac cwd (`-Users-nock-re-...`) | **1.6MB / 04-26 22:27** ← Mac での #16 中途状態のまま |
+| Win (1) 退避フォルダ | まだ存在 |
+
+★ ポイント ★
+- **Mac cwd フォルダの aeed7cdd は 22:27 で止まってる** = Mac で picker から resume すると #16 完結前の中途状態を読む
+- 修復で Win 正規を上書きしたが、それは **Win cwd フォルダのみ**。**Mac cwd フォルダは別パス**だから影響しない
+- Mac の picker は Mac cwd フォルダから読む → そこには修復が反映されていない
+
+なので Mac picker のスクショで予想：
+- **「そだね。」じゃない別の文字列** (22:27 までの aeed7cdd の最後から1つ前 user 発言) が表示されているはず
+- または、Drive 同期で Win 正規版が Mac の Win cwd フォルダにも届いていれば、Mac の Win cwd フォルダ経由で「そだね。」も出る (cwd が違うので Mac から見ると Win cwd フォルダは「別プロジェクト」)
+
+**Drive 同期で別 PC からのセッションを picker に出す** = Phase 8 hook の sync_sessions が Mac でも走って、Win 正規版を Mac cwd フォルダに copy する必要がある。Mac で claude --resume したときに hook が動いて copy されてれば picker に「そだね。」が出るはず。
+
+スクショで一発で分かる。待ってる。あと SESSION_HISTORY.md にも謎の空セッション追記が来てる (「## 📅 2026-04-26 17:00 セッション」/中身「(作業)」のみ) ← これ Mac 側で何か起きた痕跡かも。
+
+🧑 あなた
+ちょっと待って、Hookってのはさ、いつ発動するわけ？Claude Code起動した瞬間は何も作業してないよね？で、僕が一言発言すると開始処理（こちらで設定した処理）が始まる。のが普段の流れ。つまり開始直後はresumeできないのが当然で、開始処理でHookが発動したらResume可能になる？てこと？
+
+🤖 Claude
+鋭い指摘！その認識、ほぼ正解。整理：
+
+**Hook の発動タイミング (Phase 8 設計のポイント):**
+
+| イベント | SessionStart hook 発動？ |
+|---|---|
+| `claude` 新規起動 | ✅ matcher=`startup` で発動 (ユーザー発言前) |
+| `claude --resume` 起動 → picker 表示 | ❌ **picker 表示時点では未発動** |
+| picker でセッション選択 → load 完了 | ✅ matcher=`resume` で発動 |
+| ユーザー発言 | (UserPromptSubmit hook、別の hook) |
+
+**Phase 8 の sync_sessions.sh は SessionStart hook**:
+- 役割: 他 PC の jsonl を自フォルダに copy する
+- タイミング: claude 起動時 or resume 完了時
+- → **常に「次回 picker のための事前準備」**として動く
+
+**つまり、ユーザーの認識通り**:
+- claude --resume の **1 回目** = picker は **前回起動時に copy されてた jsonl** で構成される
+- 修復が 01:38、それ以降 Mac で claude 起動してない → Mac の自フォルダには新版 copy されてない → 1 回目 picker に「そだね。」出ない
+- **2 回目** claude --resume = 1 回目の hook で copy された新版が picker に並ぶ → 「そだね。」OK
+
+**Mac での確実な対処手順:**
+1. 一度 `claude` (新規) で起動 → 即 `/exit` ← これで startup hook が走って新版 copy される
+2. もう一度 `claude --resume` → picker に「そだね。」が出るはず
+
+または、**今この PC (Win) から Drive 経由で Mac cwd フォルダの aeed7cdd を直接上書き**もできる。これなら Mac の hook 待たず即解決。やる？
+
+```
+Win 正規 1.88MB (新版)  →  Drive 経由で Mac cwd フォルダに直接 copy
+```
+
+スクショまだ来てなければ、まず Mac picker 状態確認 → 必要なら Win 側からの直接 copy を実行、の順で。
+
+🧑 あなた
+起動直後に最新のresumeが即可能、ってのは実現不可能ってことだね？
+
+🤖 Claude
+完全な「起動直後 = picker に最新即反映」は **SessionStart hook 単体では構造的に不可能**。理由：picker 表示と claude 起動が同時で、その時点では hook が動いてない。
+
+**でも、wrapper script で実現は可能。** 仕組みはこう：
+
+```bash
+# ~/.bashrc (Win Git Bash) や ~/.zshrc (Mac) に追加
+claude() {
+    bash "$HOME/.claude/pre_claude_sync.sh" </dev/null
+    command claude "$@"
+}
+```
+
+これで `claude --resume` を打つと：
+1. 先に sync_sessions.sh 相当が走って、他 PC の最新 jsonl を自フォルダに copy
+2. その後、本物の claude が起動 → picker に最新版が並ぶ
+3. 1 回の起動で「そだね。」が出る
+
+**トレードオフ:**
+- ✅ 1 回起動で最新反映、現状の「2 回起動」が不要に
+- ❌ claude 起動時に **数秒の sync 待ち** が発生 (jsonl の数 + Drive 状態次第で 1〜10 秒)
+- ⚠️ alias / function 上書きなので、Claude Code のアップデートや Path 解決の混乱に注意
+
+**Phase 10 候補にする価値あり**かも。今の「2 回起動」運用が地味にうざければ実装する。1 ファイル新設 + .bashrc/.zshrc 1 行で済む規模。
+
+ROADMAP に追加する？それとも「2 回起動で十分」で見送り？
+
+🧑 あなた
+２回起動だとさ、即exitのたびにセッション履歴が１つずつ増えていくじゃない、空っぽのゴミセッションが大量に蓄積していくよね？それはいやだなｗ
+
+🤖 Claude
+その通り、それが 2 回起動運用の致命傷。実際、今 picker にも `b6e607f3 (no user) 2.7KB` ← まさに過去の即 /exit ゴミセッションの残骸。
+
+**Phase 10 (wrapper 方式) で根本解決すべき**。仕様：
+
+```
+~/.claude/pre_claude_sync.sh  ← 新設、cwd ベースで他 PC jsonl を copy
+~/.bashrc / ~/.zshrc          ← claude() 関数を追加
+_claude-sync/                  ← 新スクリプト + setup.bat / setup_mac.sh 改修
+```
+
+副次的に、**既存ゴミ jsonl の自動掃除** も同じ Phase 10 で組み込めば一石二鳥：
+- ユーザー発言 0 件 + 5 分以上 mtime 古い jsonl は picker 表示直前に削除
+- これで b6e607f3 みたいな歴史的ゴミも一掃
+
+**進め方の選択肢:**
+
+A. **今すぐ実装**: 1 セッション程度で実装可能 (wrapper + 掃除ロジック)。Mac 同期問題の本質的解決にもなる。
+B. **ROADMAP 追加だけ、今は応急処置**: Mac cwd フォルダの aeed7cdd を直接上書き copy (Win から Drive 経由) で当面しのぐ。Phase 10 は別セッションで。
+C. **既存ゴミ削除だけ先にやる**: b6e607f3 みたいなのをサクッと消すスクリプトを今走らせる。wrapper は Phase 10 で別途。
+
+どうする？
+
+🧑 あなた
+今すぐ実装かな？セッション変えたほうがいいなら変えるし。どうすればいい？
+
+🤖 Claude
+このセッションで続行 OK。理由：
+- 文脈は全部把握済み (Mac の状況、修復経緯、hook 仕様)
+- 切り替えコスト > 続行のデメリット
+- Opus 4.7 [1M context] で 358k 消費中、まだ余裕
+
+**段取り:**
+
+1. **応急処置 (5 分)**: Win → Mac cwd フォルダ の aeed7cdd を直接上書きコピー ← Mac の即時問題解決、ユーザー側スクショ取り直して即確認可能
+2. **Phase 10 実装 (1-2 時間)**:
+   - `_claude-sync/session-recall/scripts/pre_claude_sync.sh` 新設 (cwd ベースで他 PC jsonl を copy)
+   - `_claude-sync/claude_wrapper.sh` 新設 (`claude()` 関数定義、bash と zsh 両対応)
+   - `setup.bat` / `setup_mac.sh` で `.bashrc` / `.zshrc` に source 行を追加
+   - **ゴミ掃除ロジック**: ユーザー発言 0 件 + 5 分以上古い jsonl は wrapper で削除
+3. **Win 実機テスト** → Mac 配布 → 全 PC 反映確認
+4. **/end** で締めるとき、規模見て #17 末追記か #18 として独立かを判断
+
+応急処置から行く？それとも順序変える？
+
+🧑 あなた
+応急処置して改善するかみて、そのあとすぐにやろうか
+
+↓
+(作業)
+↓
+
+🤖 Claude
+応急処置完了 ✅
+
+| jsonl | Before (Mac cwd) | After (Win 正規で上書き) |
+|---|---|---|
+| **aeed7cdd** | 1.60MB / 22:27 | **1.88MB / 01:56** (#16 完結) |
+| 99c0e120 | 1.43MB / 12:34 | 1.79MB / 13:22 (#15 終了時) |
+| a9c6df23 | 0.97MB / 01:15 | 1.92MB / 01:59 (今のセッション #17 最新) |
+
+バックアップ: `projects-backup-before-merge/mac-cwd-20260427-021708/`
+
+**Mac で `claude --resume` して picker を確認してきて。** Drive 同期で 数十秒〜数分以内に新版が Mac に届くはず。期待表示：
+- 1 件目: **「そだね。かつ、普段の終了処理もね。」 1.8MB ~約 3 時間前** ← aeed7cdd 新版
+
+並行で Phase 10 設計に入る。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+sync_sessions.sh の中身把握。stdin (hook input) 必須で、wrapper 経由では使えない設計。Phase 10 では別途、stdin なしで動く版を新規実装する形になる。
+
+Phase 10 を ROADMAP に追加する。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+あれ、応急処置で「そだね」のピッカーが出てこないね。本番処置なら大丈夫かな？
+
+↓
+(作業)
+↓
+
+🤖 Claude
+📡
+
+応急処置が Mac で見えない件、原因候補：
+
+1. **Drive 同期のタイムラグ** (一番ありそう): Win → Drive アップロード → Mac へダウンロードに 1〜数分かかる
+2. **Mac の Drive Desktop が Stream モード or キュー詰まり**で更新が反映されていない
+3. **Mac 側で picker のキャッシュ**: 一度起動した直後だと反映されない可能性
+
+確認方法: Mac で `ls -la ~/Library/CloudStorage/.../_claude-sync/projects/-Users-nock-re-.../aeed7cdd-*.jsonl` のサイズ。**1.88MB なら届いてる、1.6MB なら未到達**。
+
+少し時間置いてから Mac で再度 `claude --resume` 試すと出るかも。
+
+**Phase 10 (本番処置) も Drive 同期が前提**。各 PC で wrapper が「Drive 上 (= 全 PC 共有の `_claude-sync/projects/`) から自 PC ローカルの自 cwd フォルダに copy」する仕組みなので、Drive 同期が遅延してれば wrapper でも即解決はしない。**ただし「即 /exit で空ゴミセッション増殖」問題は wrapper で解決する**。Drive 同期遅延と独立した利点。
+
+Phase 10 進捗報告:
+- ✅ scripts/ に 3 ファイル実装 + 単体テスト全部 OK
+- ✅ cleanup 本実行: ゴミ jsonl 3 件 (b6e607f3 / 0f036cd5 / c85fa6e5) を `~/.claude/projects-trash/` に退避、自フォルダは 24 → 20 jsonl にスリム化
+- 🔄 残: deploy.sh 拡張 + _claude-sync 配布 + setup.bat/setup_mac.sh 改修 + .bashrc 注入
+
+このまま進める。Mac は数分後に再試行で待って。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_022826.png 同期の問題じゃない気がする。同期は終わっている。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_022938.png
+
+↓
+(作業)
+↓
+
+🧑 あなた
+[Request interrupted by user]
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_022938.png
+
+↓
+(作業)
+↓
+
+🤖 Claude
+🚨 **これはまずいかも**。Mac の Drive 上で **Mac cwd フォルダの aeed7cdd jsonl が見つからない**。`zsh: no matches found` はフォルダはあるけど aeed7cdd-*.jsonl が居ないという意味。
+
+このPC (HP-Pavilion-myhome) から Drive の同じ場所を緊急確認：
+
+↓
+(作業)
+↓
+
+🤖 Claude
+待った、重要な事実：**このPC からは Drive 上に aeed7cdd jsonl が見える** (1.6MB / 02:21 更新)。Mac から見えないのは Drive 同期遅延の可能性。
+
+それと **謎のバックアップフォルダ `mac-cwd-20260427-021708`** があった (02:17 = 俺の修復後)。これ俺が作ってない。中身確認。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_023124.png
+
+↓
+(作業)
+↓
+
+🤖 Claude
+「no matches found」 = ls 用のパス glob (省略 `.../...` のとこ) が想定通り存在してないか、Drive 同期がまだ届いてないか。確実に確認するコマンドはこれ：
+
+```bash
+find ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/projects -name 'aeed7cdd*' -exec ls -la {} \; 2>/dev/null
+```
+
+**期待される結果（応急処置が届いていれば）:**
+```
+... 1887577 ... aeed7cdd-...jsonl   (Mac cwd フォルダ、1.88MB)
+... 1882349 ... aeed7cdd-...jsonl   (Win cwd フォルダ、1.88MB)
+... なんらか ... aeed7cdd-...jsonl  (退避フォルダ)
+```
+
+**期待外 (Drive 同期未到達):**
+- そもそも何も出ない、または 1.6MB / 22:27 のままの古い版だけ
+
+並行で Phase 10 配布も進める。Mac で setup_mac.sh 実行 → wrapper 仕込めば、Drive 同期さえ届いていれば 1 回起動で picker に「そだね。」が出る形。
+
+find の結果送って。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_023355.png
+
+↓
+(作業)
+↓
+
+🤖 Claude
+ヤバい、**何もヒットしてない**。Mac 1 (appurunoMacBook-Air) で aeed7cdd 自体が Drive 上にゼロ。これは応急処置以前の問題で、**Mac 1 で Drive 同期そのものが壊れてる可能性**。
+
+状況把握する確認コマンド 2 つ：
+
+```bash
+# 1. _claude-sync/projects/ 配下にどんなフォルダがあるか
+ls ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/projects/ | head -20
+
+# 2. ~/.claude/projects の symlink 先がどこを指してるか
+ls -la ~/.claude/projects 2>&1 | head -5
+```
+
+これで分かること：
+- 1 で session-recall 系フォルダが見えるか/全く違うか/フォルダ自体が空か
+- 2 で symlink が正しく `_claude-sync/projects/` を指しているか/壊れているか
+
+#16 セッションでは Mac 1 で aeed7cdd が picker に並んで resume 成功してた。それが今は無い = どこかのタイミングで Drive 同期が壊れたか、symlink がリセットされたか。
+
+両コマンドの結果送って。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_023835.png
+
+↓
+(作業)
+↓
+
+🤖 Claude
+スクショが小さくて細部が読めない…拡大するか、出力をテキストで貼り付けてもらえると確実。または、絞り込みコマンドで結果短くして送って：
+
+```bash
+# session-recall 系フォルダだけに絞り込み
+ls ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/projects/ | grep -i session-recall
+
+# symlink 状態だけ
+ls -la ~/.claude/ | grep projects
+```
+
+これなら出力 1〜3 行になるはず。テキストで貼ってくれてもいい。
+
+🧑 あなた
+Last login: Mon Apr 27 02:28:52 on ttys002
+nock_re@appurunoMacBook-Air ~ % ls ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/projects/ | head -20
+-Users-nock-re
+-Users-nock-re--claude-mem-observer-sessions
+-Users-nock-re-Library-CloudStorage-Dropbox--Apps2026-iphone-memo-book
+-Users-nock-re-Library-CloudStorage-Dropbox--Apps2026-terminal-copy
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026--------
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Chat
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Data-Share
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-iphone------
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-iphone-memo-book
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Memolette
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Memolette-Flutter
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-P-Secretary-App
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-P3-reminder
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Reminder-Flutter
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-terminal-copy
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-Tips
+D--Dropbox--------2026---Data-Share
+d--Dropbox--------2026---Homework-Rescue
+D--Dropbox--------2026---Homework-Rescue-homework-rescue
+nock_re@appurunoMacBook-Air ~ % ls -la ~/.claude/projects 2>&1 | head -5
+lrwxr-xr-x  1 nock_re  staff  107  3月 29 12:27 /Users/nock_re/.claude/projects -> /Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/projects
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+整理OK：
+- ✅ session-recall の Mac cwd フォルダは Mac 1 にも存在
+- ✅ symlink も正しく `_claude-sync/projects` を指している
+
+なのに find で aeed7cdd ヒットしない = **フォルダ自体は届いてるが中身が空 or Drive Stream モードでファイルが未ダウンロード**。
+
+中身確認：
+
+```bash
+ls ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/ 2>&1
+```
+
+これで何が出るかで判定：
+- **何も出ない** = 完全に空 (Drive 同期未完了 or 同期エラー)
+- **jsonl ファイル名が出るが find で見えない** = Stream モードのオンデマンド DL 未取得
+- **エラー** = 何か壊れてる
+
+結果送って。並行で Phase 10 配布作業続ける。
+
+🧑 あなた
+Last login: Mon Apr 27 02:37:06 on ttys002
+nock_re@appurunoMacBook-Air ~ % ls ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/ 2>&1
+082e91cc-bb10-4fe1-9e63-f032ad828acb.jsonl
+0f036cd5-be7e-4ade-9879-1eead3dd96f9.jsonl
+13fc26af-a618-42f6-ac40-4e2d21422a6b
+13fc26af-a618-42f6-ac40-4e2d21422a6b.jsonl
+20b3b05b-b074-4868-9723-7de676dcb0ef.jsonl
+525960e0-a3ca-4fd1-a402-ff1e94e6d5c0.jsonl
+5f557b00-35de-4717-953a-8a75f8ade80e.jsonl
+6f741a14-5047-4140-ab18-9ca1833874fe.jsonl
+742c9c6e-26f4-40ac-9d40-b5ff77eddb60.jsonl
+7c47fd4e-4dae-453c-8a73-357c37c77fa6.jsonl
+83d73da9-3357-41fd-a1d7-173a89b995f4.jsonl
+93a90ccb-e010-45fe-8d39-8fbda63509f9.jsonl
+99c0e120-2dfa-4b77-89ca-196ba8a63e3c.jsonl
+9b1c98ae-700a-4f7c-b655-79a603ff6bc9.jsonl
+a9c6df23-2b75-4b1b-9ce4-85d96541a645.jsonl
+aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+b211e600-8ce7-4f6f-bab0-269d574d3b64.jsonl
+b6e607f3-4f6b-4be2-9969-6ab9a43fc02c.jsonl
+c85fa6e5-594d-46ba-9424-16eabedf77fd.jsonl
+c9930225-94d8-4466-bcb8-c24652f34df0.jsonl
+d81d7172-f58f-46c4-968f-c8534f8efb77.jsonl
+dc2347ea-fa0c-4fe1-95a4-5614b83fd168.jsonl
+e91e8cac-89d8-4306-8131-5df21c8f33be.jsonl
+ebf04c76-ffef-4c81-90b1-bfacada7f862.jsonl
+ff41bcc3-4f76-4e3f-a8de-94f7d098c338.jsonl
+memory
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+★ aeed7cdd ちゃんと居た！(find が日本語 + Drive 仮想 FS で機能しなかった疑い)
+
+しかも **a9c6df23 (今このセッション #17)** も居る = **応急処置の copy は Mac 1 に届いてる可能性高い**。
+
+最後の確認 1 つ：aeed7cdd のサイズと mtime。**1.88MB なら応急処置反映済み**:
+
+```bash
+ls -la ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+```
+
+そして `claude --resume` の picker スクショもう一度撮って。応急処置届いていれば picker に「そだね。」が出るはず。
+
+それと、リストに `13fc26af-...` (フォルダ) + `13fc26af-...jsonl` (ファイル) の両方ある = セッション artifacts (subagents/tool-results) フォルダも届いている。問題なし。
+
+並行で Phase 10 配布を進める。deploy.sh 拡張する。
+
+🧑 あなた
+Last login: Mon Apr 27 02:40:52 on ttys002
+nock_re@appurunoMacBook-Air ~ % ls -la ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDriveyagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+ls: /Users/nock_re/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDriveyagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl: No such file or directory
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+タイプミス：`GoogleDrive` と `yagukyou` の間のハイフンが抜けてる。コピペでこれを：
+
+```bash
+ls -la ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+```
+
+(`GoogleDrive-yagukyou` ← ハイフン入り)
+
+🧑 あなた
+Last login: Mon Apr 27 02:40:52 on ttys002
+nock_re@appurunoMacBook-Air ~ % ls -la ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDriveyagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+ls: /Users/nock_re/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDriveyagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl: No such file or directory
+nock_re@appurunoMacBook-Air ~ % ls -la ~/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+-rw-------@ 1 nock_re  staff  1626195  4月 27 02:21 /Users/nock_re/.claude/projects/-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+★ 重要発見 ★
+
+```
+1,626,195 bytes (1.55MB) / 2026-04-27 02:21
+```
+
+**応急処置 (1.88MB / 01:56) より小さくて、しかも新しい mtime！** これは：
+
+1. 応急処置の 1.88MB は Mac 1 に届いていない
+2. **Mac 1 で 02:21 ごろ何か aeed7cdd を更新する処理が走った**
+
+Mac 1 で 02:21 ごろ `claude` 起動した？または何かの hook が動いた？心当たりある？
+
+サイズ 1.55MB は応急処置前の 1.6MB より少し大きいから、Drive 同期で別経路 (Win cwd 由来の jsonl が Mac で Phase 8 hook 経由で copy されたとか) が降ってきて、Mac 自フォルダで更新された可能性。
+
+**確実な対処:** Mac で `claude --resume` の picker スクショもう一度撮ってみて。表示が何か分かれば確実：
+- 「そだね。かつ、普段の終了処理もね。」 → 実は 1.55MB でも picker 表示が #16 末尾近くまで届いてる
+- 別の文字列 (例「やったよ！」など) → picker は古い user 発言を表示している
+- aeed7cdd 自体が picker に出ない → 他の問題
+
+それから再応急処置を Win 側からまた打てる準備しておく。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_024954.png
+
+↓
+(作業)
+↓
+
+🤖 Claude
+★ 重要発見だらけ ★
+
+**1. Mac 1 にゴミセッション 3 件増殖中！** Phase 10 wrapper の必要性が完全証明：
+```
+/exit  4.6KB  21 minutes ago  ← 02:30 ごろ作られた空セッション
+/exit  3.4KB  35 minutes ago  ← 02:14 ごろ
+/exit  4.4KB  46 minutes ago  ← 02:03 ごろ
+```
+
+**2. aeed7cdd は古版「間違えて同じマシンでやってたよ。今度こ...」 1.6MB / 27 分前**
+   - 応急処置 (1.88MB) は **Mac 1 に届いていない** 確定
+   - 表示文字列「間違えて同じマシンで...」は SESSION_LOG #16 L595 の発言と完全一致 → 22:27 の Mac cwd 古版から表示
+
+**3. a9c6df23 (今のセッション #17) も古版 948KB**
+   - 応急処置は a9c6df23 にも届いていない
+
+→ **Drive 同期で Win → Mac の `_claude-sync/projects/-Users-nock-re-...` への上書きが届かない** という事象。
+
+確認してもらいたい 2 つ：
+
+```bash
+# Win cwd フォルダ Drive 同期版の aeed7cdd 状態
+ls -la ~/.claude/projects/G----------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+
+# (1) 付きフォルダや退避フォルダが Mac 1 にも見えるか
+ls ~/.claude/projects/ | grep -i session-recall
+```
+
+これで「Win 修復が Drive 経由で Mac にどこまで届いたか」 + 「(1) 退避フォルダが Mac でも見えるか」分かる。
+
+仮説：Win cwd フォルダの 1.88MB は Mac 1 に Drive 同期で届いている可能性。Phase 10 wrapper があれば Mac 起動時に「Win cwd フォルダ → Mac cwd フォルダ」へ自動 copy する仕組みなので、これで全部解決する。**Phase 10 配布を最優先で進める意義が明確になった**。
+
+🧑 あなた
+Last login: Mon Apr 27 02:48:53 on ttys001
+nock_re@appurunoMacBook-Air ~ % ls -la ~/.claude/projects/G----------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+-rw-------@ 1 nock_re  staff  1626080  4月 27 02:22 /Users/nock_re/.claude/projects/G----------Apps2026-session-recall/aeed7cdd-5330-4aec-b72a-663850a60f1b.jsonl
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+うわ、もっと深刻。**Mac 1 では Win cwd フォルダ版の aeed7cdd も 1.55MB / 02:22**。Win 側の修復後 (1.88MB / 01:56) は **Mac 1 のどっちのフォルダにも届いていない**。
+
+しかも mtime 02:22 = 修復から 26 分後 = Mac 1 で別の処理が aeed7cdd を上書きした痕跡。
+
+もう一つの確認、まだ実行されてなかった。**(1) フォルダや退避フォルダが Mac 1 にあるか**を見たい：
+
+```bash
+ls ~/.claude/projects/ | grep -i session-recall
+```
+
+これで全部の session-recall 系フォルダ (Mac cwd / Win cwd / `(1)` / 退避) が分かる。
+
+並行で Phase 10 配布を急ぎ進める。Mac 1 に wrapper を仕込めば、Win cwd フォルダ Drive 同期版から Mac cwd フォルダへ「mtime 比較で新しい方優先」の copy が走る。Drive 同期に頼らず、各 PC ローカルで完結する解決策。
+
+deploy.sh 拡張する：
+
+↓
+(作業)
+↓
+
+🧑 あなた
+Last login: Mon Apr 27 02:55:02 on ttys000
+nock_re@appurunoMacBook-Air ~ % ls ~/.claude/projects/ | grep -i session-recall
+-Users-nock-re-Library-CloudStorage-GoogleDrive-yagukyou-gmail-com---------Apps2026-session-recall
+G----------Apps2026-session-recall
+G----------Apps2026-session-recall (1)-退避-20260427-014007
+nock_re@appurunoMacBook-Air ~ %
+
+↓
+(作業)
+↓
+
+🤖 Claude
+deploy.sh 完走 ✅ → Phase 10 の 3 ファイルが `_claude-sync/session-recall/` に配布済み。Mac 1 でも数分以内に Drive 同期で届く。
+
+そして Mac 1 のフォルダ構造確認できた：
+- ✅ Mac cwd / Win cwd フォルダ存在
+- ✅ **(1) フォルダは退避済み (`(1)-退避-20260427-014007`)** = Win での退避操作は Drive 同期で Mac に届いた
+
+しかし aeed7cdd 上書きが Mac に届いていないのは、**Mac 1 で aeed7cdd ローカル更新 (02:21) → Drive 衝突解決で Mac 1 版が勝った** = Win 応急処置 (02:17 アップロード) が古い扱いになった可能性。
+
+これは Phase 10 wrapper でも厄介。Win cwd フォルダ Drive 同期版自体が Mac 1 で 1.55MB に上書きされている。
+
+**ともかく Phase 10 配布を完成させる。次のステップ:** `setup.bat` / `setup_mac.sh` に `.bashrc` / `.zshrc` 注入ロジックを追加。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+**Phase 10 実装+配布+Win 注入 完了 ✅**
+
+| 項目 | 状態 |
+|---|---|
+| 3 スクリプト実装 | ✅ pre_claude_sync.sh / cleanup_empty_sessions.sh / claude_wrapper.sh |
+| `_claude-sync/session-recall/` 配布 | ✅ (deploy.sh 完走) |
+| `setup.bat` Step 4e | ✅ 追加 |
+| `setup_mac.sh` Step 4.6 | ✅ 追加 |
+| Win (このPC) `.bashrc` 注入 | ✅ source 行追加、新規 bash で claude function 定義確認 |
+| Win ゴミ jsonl 削除 | ✅ 3 件 (b6e607f3 / 0f036cd5 / c85fa6e5) を projects-trash/ に退避済み |
+
+**Mac 側でやること:**
+```bash
+bash ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/setup_mac.sh
+```
+→ Step 4.6 で wrapper が `.zshrc` に注入される。次に `claude --resume` 起動で wrapper が動いてゴミ /exit セッション 3 件も自動削除される。
+
+**ただし aeed7cdd 修復問題は wrapper では解決しない可能性:**
+- Mac 1 では aeed7cdd が **両フォルダとも 1.55MB / 02:22** で固定 (Drive 同期競合で Mac 1 版が勝った)
+- wrapper は同 PC ローカルの兄弟フォルダ間で copy する仕組み → どちらも 1.55MB なら効果なし
+- 対処候補:
+  - **A**: Win からもう一度上書き (応急処置 part 2、Mac で claude --resume 試行しない間に)
+  - **B**: aeed7cdd は諦めて新規セッションで作業
+  - **C**: UUID 直接指定 `claude --resume aeed7cdd-5330-4aec-b72a-663850a60f1b` (picker バイパス)
+
+Mac で setup_mac.sh 実行してきて、ゴミセッション削除と wrapper 動作確認を先に。aeed7cdd 修復は別判断。
+
+並行で session-recall のコード変更を commit する：
+
+↓
+(作業)
+↓
+
+🤖 Claude
+session-recall コード commit + push 完了 (`1500964`)。
+
+Mac で setup_mac.sh 実行してきて。実行後 picker のスクショを撮ってもらえれば、wrapper の効果 (ゴミ /exit 3 件削除 + 兄弟フォルダ copy) が即わかる。
+
+待ってる間に、状況を冷静に整理。aeed7cdd 修復問題は実は **より深刻** で：
+
+- Mac 1 で aeed7cdd ローカル更新 (02:21) > Win 修復 (01:56)
+- Drive 同期は新しい mtime 優先で Mac 1 版を保持
+- Win 側にもいずれ Mac 1 の 1.55MB が降ってくる可能性 (Win 1.88MB が 1.55MB に上書きされる事故)
+
+これを防ぐには、**今すぐ Win から Mac cwd フォルダの aeed7cdd を再上書き** + 念のため Win cwd フォルダの aeed7cdd も確認。Mac で claude 起動しないうちに反映させる。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+最悪の事故発覚 ⚠️
+
+```
+Win 正規:        1.55MB / 02:21  ← 修復後 1.88MB が消失！
+Mac cwd 同期:    1.55MB / 02:21  ← 同じく
+退避フォルダ:    1.88MB / 01:35  ← ★ 唯一の生き残り
+```
+
+**Drive 同期で Mac 1 の 1.55MB / 02:21 が新しい mtime で勝って、Win の 1.88MB / 01:56 を上書きした**。修復が完全に巻き戻された…。
+
+Drive 同期の競合解決は mtime ベースで残酷。
+
+**現状:**
+- aeed7cdd の **#16 完結状態 (1.88MB)** は **退避フォルダにのみ残存**
+- Win/Mac の正規 + Mac cwd フォルダはどちらも #16 中盤の古版 (1.55MB)
+- Mac 1 で picker から resume 試行を繰り返すと aeed7cdd が更新されて Drive 同期で Win も巻き戻る悪循環
+
+**現実的な選択肢:**
+
+退避フォルダの 1.88MB を保険として確実に避難させる→ aeed7cdd 復元は諦める路線へ：
+
+↓
+(作業)
+↓
+
+🤖 Claude
+**1.88MB 完結版を Drive 圏外に避難完了** (`~/aeed7cdd-backup/aeed7cdd-complete-1882349B-20260427-013556.jsonl`)
+
+これで何があっても #16 の完結 jsonl は失われない。後日：
+- ここから再上書き (Drive 同期と戦いながら)
+- または UUID 直接指定で resume 試行 (`claude --resume aeed7cdd-...`、退避フォルダのまま使うとか)
+- 別 PC で復元したい場合に使う
+
+**現状整理 (#17 の最終局面):**
+
+| 項目 | 状態 |
+|---|---|
+| Phase 8 (PC 横断 resume) | ✅ Win 単機成功実証済み |
+| Drive 同期事故修復ロジック | ✅ Win 1 台で実証 (aeed7cdd 1.18 → 1.88MB マージ) |
+| **Drive 同期競合事故** | ⚠️ 修復が Mac 1 ローカル更新で巻き戻る現象を発見、wrapper だけでは解決不可 |
+| Phase 10 wrapper | ✅ 実装+配布+Win 注入完了、ゴミ jsonl 3 件削除済み |
+| Mac wrapper 注入 | 🔄 Mac で setup_mac.sh 実行待ち |
+| aeed7cdd 1.88MB 完結版 | ✅ Drive 圏外バックアップ済み |
+
+Mac で setup_mac.sh 実行してきて、ゴミ /exit 3 件が wrapper で自動削除されるか確認するのが Phase 10 の最終検証。aeed7cdd 単体修復は諦め路線。
+
+🧑 あなた
+今このチャットがaeed7cdd?
+
+🤖 Claude
+いいえ、今このチャットは **a9c6df23** (#17 セッション、Win 2/3 picker 不発診断 + Drive 同期事故修復 + Phase 10 実装の流れ)。
+
+**aeed7cdd** は別セッション (#15 + #16)：Mac で開始 → 各 PC を渡り歩いて gitattributes セットアップで /end したやつ。修復対象。
+
+picker で見ると Mac 1 で：
+- 「**間違えて同じマシンでやってたよ。今度こ...**」 1.6MB ← aeed7cdd (修復したいやつ)
+- 「**C:\Users\msp\AppData\Local\Temp\claude...**」 948KB ← a9c6df23 (今のこの会話)
+
+完全に別物。aeed7cdd 修復に失敗しても、この会話 (a9c6df23) は jsonl で全 PC に同期されてるので、Mac でも resume 可能なはず。
+
+🧑 あなた
+naruhodo.
+
+🤖 Claude
+👍
+
+Mac で `setup_mac.sh` 実行 (or Drive 経由でこの a9c6df23 セッションに resume してもらえれば俺が直接) で Phase 10 wrapper 仕込み完了する。aeed7cdd は完結版バックアップ済みで安全。次の動きどうする？
+
+🧑 あなた
+まぁsession_historyは残ってるから、なんとかね？ただ、このセッションがMACでresumeできないんじゃないの、ていう話だよ。それで困ってるわけだしｗ
+
+🤖 Claude
+確かに 😅 痛いとこ衝かれた。
+
+**整理して向き合う:**
+
+このセッション (a9c6df23 = #17) を **Mac で resume できない**理由 = aeed7cdd と同じ構造的問題：
+- Mac 1 で picker に表示される a9c6df23 は **948KB / 23 分前** = 古版
+- Win 側の最新 a9c6df23 は今この瞬間 1.9MB+
+- Drive 同期事故 (Mac ローカル更新が新 mtime で勝つ) で Win 修復が巻き戻る
+
+→ Mac で resume しても **古版が読み込まれて #17 の最新ターンが見えない**。
+
+**ただし救いはある:**
+
+| 状況 | 影響 |
+|---|---|
+| HANDOFF.md / SESSION_HISTORY.md / SESSION_LOG.md が GitHub | ✅ 全 PC で git pull すれば最新読める |
+| Phase 10 実装 + commit (`1500964`) | ✅ GitHub にあり、Mac で pull すれば全 wrapper 配布物入手可 |
+| この会話の重要決定 | ✅ HANDOFF #18 残課題に書けばカバー可能 |
+| ターン連続性 (Resume の利便性) | ❌ 失われる、新規セッションで HANDOFF 読み直し |
+
+つまり「**Mac で a9c6df23 を resume するのは諦める。新規セッションで HANDOFF/SESSION_HISTORY 読んで継続**」が現実解。
+
+**Drive 同期事故の根本対策は Phase 11 として別途設計**:
+- 候補: 「最新版を pin する仕組み」「特定 jsonl を Drive 同期外に逃がす」「.gitattributes 同様、claude にもファイルロック concept を入れる」
+- でも Phase 9 で見たように Drive Desktop の制約で symlink/junction NG
+- 「2 PC で同時 active 禁止」運用ルールが現実解かも
+
+**今ここでの判断:**
+
+A. **このまま /end → 新規セッション (#18) で続行**: Phase 10 wrapper 仕込み実機検証 + Drive 同期事故の構造的対策を #18 で議論
+B. **#17 内で Mac wrapper 仕込みまで**: Mac で setup_mac.sh 実行待って、検証完了させてから /end
+C. **#17 末で aeed7cdd 同様の状況を HANDOFF に詳細記録**して、Phase 11 候補として残して /end
+
+実害は HANDOFF が万全なら少ない (aeed7cdd で実証済み: ターン履歴失っても作業は継続可能)。どうする？
+
+🧑 あなた
+setup_mac.sh、ダイアログが一瞬で閉じちゃって成功してんだかなんだかわかんないな
+
+🤖 Claude
+わかる、ダブルクリック起動だと終了で即閉じるので結果見えない。確認は新しいターミナルで：
+
+```bash
+# claude が wrapper 関数になってるか確認 (これが一番早い)
+type claude
+```
+
+期待結果：
+```
+claude is a shell function from /Users/nock_re/.../マイドライブ/_claude-sync/session-recall/claude_wrapper.sh
+```
+
+「shell function」が出れば setup_mac.sh 成功 ✅。出ない (普通のコマンドとして表示される) なら .zshrc に注入されてない。
+
+または、setup_mac.sh をターミナルで bash 経由実行すれば出力が見える：
+```bash
+bash ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/setup_mac.sh
+```
+
+これで Step 4.6 の `[OK]` メッセージが見える。
+
+🧑 あなた
+claude is /Users/nock_re/.local/bin/claude
+nock_re@appurunoMacBook-Air ~ %
+
+🤖 Claude
+wrapper 効いてない。Step 4.6 が走ってないか、.zshrc に追記されてもまだ source されてない。確認 2 段：
+
+```bash
+# 1. .zshrc に wrapper の source 行があるか
+grep -A 1 'claude_wrapper' ~/.zshrc
+
+# 何も出ないなら setup_mac.sh が走ってない or Step 4.6 が無い → 次のコマンド
+bash ~/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/setup_mac.sh
+# (ターミナルで実行すれば出力が見える)
+```
+
+source 行あるなら：
+```bash
+source ~/.zshrc && type claude
+# ← 「shell function」と出れば OK
+```
+
+どっちかの結果送って。
+
+🧑 あなた
+コピペ面倒だな。一回正式に終了して、Macで新セッションでもいい？
+
+🧑 あなた
+それなら普通に続行できるんでしょ？Resumeだけが上手くいかないんだもんね？
+
+🧑 あなた
+[Request interrupted by user]
+
+🤖 Claude
+その通り、**Resume が壊れるだけ**で、新規セッション (resume なしで `claude` 起動) なら全く問題ない。新規 jsonl で開始 → cwd の自フォルダで自然に動く → Drive 同期事故の影響なし。
+
+それでいこう。流れ：
+
+1. **このセッションを `/end` 相当で締める** (Phase 10 実装の追加分 + Drive 同期事故発覚を SESSION_HISTORY 末追記)
+2. **`/exit`**
+3. **Mac で新規 `claude` 起動** (resume せず) → wrapper 自動発動 → ゴミ /exit セッション 3 件削除されるか + ログ確認
+4. **HANDOFF.md / SESSION_HISTORY.md 読んで状況把握** → 続行
+
+これなら：
+- ✅ Phase 10 wrapper の Mac 側動作実機検証も可能 (新規起動時に wrapper が走る)
+- ✅ ゴミ /exit セッション削除も自動
+- ✅ Drive 同期事故と無関係
+
+`/end` 走らせる。
+
+🧑 あなた
+セッションを終了する前に、以下を全て自動実行してください。**確認不要・全自動。**
+
+## Step 1: セッション番号を決定（確認不要）
+プロジェクトMEMORYの `session_counter` を参照・更新する（なければ 1 から開始、または `SESSION_HISTORY.md` 末尾の既存ヘッダから連番を推測）。ユーザーに確認せず、そのまま使う。
+
+## Step 2: 全て並列実行
+以下を**全て並列で**実行する：
+- `HANDOFF.md` に現在の状況・次のアクションを書き込む（既に最新なら省略可）
+- `py "G:/マイドライブ/_claude-sync/transcript_export.py" --latest` でセッションログを `SESSION_LOG.md` に出力
+- `SESSION_HISTORY.md` の末尾にセッション連番と日時のヘッダ付きで追記（重複チェック不要、常に追記）
+  - ヘッダ例: `---\n## #9 (2026-03-02)\n`
+- `session_counter` をインクリメント
+
+## Step 3: 終了案内
+- 「`/exit` で終了してください」と伝える（`/exit` は組み込みコマンドなのでスキルからは実行できない）
+
+
+<!-- session-recall:end-hook:begin v1 -->
+
+## Step 2.9: session-recall インデックス自動更新（Step 2 完了後・バックグラウンド）
+
+**Step 2 の並列書き出し（HANDOFF / SESSION_HISTORY / SESSION_LOG）が全て完了してから実行すること**。書き出し前に走ると最新セッション分を取りこぼす（セッション #5 で発生、修正履歴は session-recall/DEVLOG.md 参照）。
+
+最新セッションでの `SESSION_HISTORY.md` / `HANDOFF.md` / `DEVLOG.md` 追記分を session-recall のセマンティック検索インデックスに反映する。
+
+- バックグラウンド実行で `/end` の終了を遅らせない（スクリプト側で `sleep 30` 後に動き始めるため、書き出し完了を二重に保証）
+- 失敗しても無視（DB 未構築・venv 未セットアップ等の場合は内部でサイレントスキップ）
+- 増分更新なので変更ファイルがあるときだけ埋め込みが走る（数秒〜数十秒）
+
+```bash
+for p in \
+    "/Users/nock_re/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/session-recall/update_index.sh" \
+    "/g/マイドライブ/_claude-sync/session-recall/update_index.sh" \
+    "/G/マイドライブ/_claude-sync/session-recall/update_index.sh" ; do
+    if [ -x "$p" ]; then
+        nohup bash "$p" >/dev/null 2>&1 &
+        break
+    fi
+done
+```
+
+<!-- session-recall:end-hook:end v1 -->
+
+↓
+(作業)
+↓
+
+🤖 Claude
+/end 全自動実行する。session_counter は前 /end で 18 になってるから、今のは **#18 として独立記録** (Phase 10 + Drive 同期事故 part 2) で扱う。
+
+↓
+(作業)
+↓

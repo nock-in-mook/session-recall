@@ -3561,3 +3561,63 @@ HP-Pavilion-myhome で修復直後に検証実施:
 - = aeed7cdd 新版 (Drive 同期事故修復後) が正常にロード成功 = Win 2/3 で長らく不発だったポイントを完全突破
 
 **Drive 同期事故修復ロジックが完全に効くことを実証**。残るは Win 3 (もう一台の HP-Pavilion-myhome 系) でも自動的に Drive 同期で修復が伝播するか実機確認するのみ。
+
+---
+
+## 📅 2026-04-26 17:00 セッション
+
+↓
+(作業)
+↓
+
+---
+
+## #18 (2026-04-27): Phase 10 wrapper 実装 + Drive 同期事故 part 2 発覚
+
+**舞台:** HP-Pavilion-myhome (#17 から resume 継続して #18 として独立記録)
+
+### 経緯
+#17 で /end → /exit せず /resume で同セッション (a9c6df23) を再開。Mac 1 で aeed7cdd resume 試行が「やったよ！」クリックして resume 完走しない症状を追加調査 → Phase 10 wrapper 設計・実装 → 想定外の Drive 同期事故 part 2 発覚 → 完結版を Drive 圏外に避難。
+
+### Phase 10 実装 (commit `1500964`)
+**動機:**
+- Phase 8 SessionStart hook は picker 表示後に発動 → 「他 PC 由来の最新 jsonl」が起動時の picker に出ない
+- 回避策の「2 回起動 (即 /exit + 再 resume)」で picker に空ゴミセッション (`/exit` 数 KB) が蓄積
+
+**実装内容 (3 スクリプト + 2 配布フロー):**
+| ファイル | 役割 |
+|---|---|
+| `scripts/pre_claude_sync.sh` | stdin 不要、$PWD から cwd 算出 → 兄弟フォルダの jsonl を mtime 比較で copy (Drive 同期事故対策) |
+| `scripts/cleanup_empty_sessions.sh` | ユーザー発言 0 件 + mtime 5 分以上古い jsonl を `~/.claude/projects-trash/` に退避 (削除でなくゴミ箱方式) |
+| `scripts/claude_wrapper.sh` | bash/zsh 両対応の `claude()` 関数。本物 claude 起動前に上記 2 つを実行 |
+| `deploy.sh` | 17 → 20 工程に拡張、3 スクリプトを `_claude-sync/session-recall/` に配布 |
+| `_claude-sync/setup.bat` Step 4e | `.bashrc` に wrapper source 行を冪等追加 |
+| `_claude-sync/setup_mac.sh` Step 4.6 | `.zshrc` に同様 |
+
+**Win 単体テスト ✅:**
+- `.bashrc` 注入完了、新規 bash で `claude is a shell function` 確認
+- ゴミ jsonl 3 件 (b6e607f3 = 2.7KB / 0f036cd5 = 3.4KB / c85fa6e5 = 4.5KB) を `~/.claude/projects-trash/` に退避
+
+### Drive 同期事故 part 2 発覚 ⚠️
+**症状:** Win で #17 修復した aeed7cdd 新版 (1.88MB / 01:56) が Mac 1 に届かない。
+- Mac 1 の aeed7cdd jsonl: **両フォルダとも 1.55MB / 02:21** で固定
+- Mac 1 picker に空ゴミセッション 3 件 (`/exit` 4.6KB / 3.4KB / 4.4KB) が増殖
+
+**原因:**
+- Mac 1 で aeed7cdd を picker から試行する都度 jsonl が touch される (mtime 更新)
+- Drive 同期は新 mtime ベースで勝者判定 → Mac 1 ローカル更新版 (1.55MB / 02:21) が勝つ → Win 修復版 (1.88MB / 01:56) が古い扱いで上書きされる
+- **Win 側にも巻き戻りが波及**して Win 正規フォルダ aeed7cdd も 1.55MB / 02:21 になっていることを実機確認
+
+**唯一の生き残り:** 退避フォルダ `G----------Apps2026-session-recall (1)-退避-20260427-014007/aeed7cdd-...jsonl` (1.88MB / 01:35) が #16 完結状態を保持。Drive 圏外 `~/aeed7cdd-backup/` にもバックアップ保存。
+
+### picker 表示ロジック (経験的に判明)
+- picker は jsonl 内の「**最後から 1 つ前**」の user 発言を表示する
+- aeed7cdd 古版 (user 発言 3 件) → L260「やったよ！」が表示される
+- aeed7cdd 新版 (#16 全完結) → 「そだね。かつ、普段の終了処理もね。」が表示される
+- ユーザー側の認識: picker 表示文字列が「最後の発言」と思っていたため、古版と新版の picker での見え方の違いを誤解していた
+
+### #19 以降への引き継ぎ
+- **A. Phase 10 wrapper の Mac 側実機検証**: Mac で `bash setup_mac.sh` をターミナル経由で再実行 → `.zshrc` 注入 → 新規 zsh で `type claude` で `shell function` 確認 → claude 起動でゴミセッション削除と兄弟フォルダ copy の動作観察
+- **B. Drive 同期事故の構造的対策 = Phase 11 候補**: 複数 PC で同セッション並行 active を避ける運用ルール化、または完結 jsonl 保護機構 (技術的には Phase 9 同様詰む可能性大)
+- **C. Win 3 の同期状態確認**: 退避バックアップ復元が必要かもしれない
+- **D. 「別 PC への移動 = 新規セッション」運用ルール化**: a9c6df23 (このセッション #17 + #18) も Mac で resume すると古版 (948KB) しか取れない。新規セッションで HANDOFF 読み直しが現実解

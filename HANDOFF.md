@@ -548,12 +548,66 @@ if hasattr(sys.stderr, "reconfigure"):
 - aeed7cdd 古版 (user 発言 3 件: 「よし、やっていこう」/L3、「やったよ！」/L260、「次はmacで...」/L452) → picker は L260 の「やったよ！」を採用
 - aeed7cdd 新版 (user 発言数十件) → picker は #16 終盤の「そだね。かつ、普段の終了処理もね。」を採用
 
-### 残課題 (#18 以降)
+### セッション #18 でやったこと (2026-04-27 早朝): Phase 10 wrapper 実装 + Drive 同期事故 part 2 発覚
 
-**A. 修復後検証 ✅ HP-Pavilion-myhome で実証完了 (#17 末)**
-- 修復直後に /exit → claude --resume → picker 1 件目に「そだね。かつ、普段の終了処理もね。」 1.8MB 11 minutes ago が表示される ← 古版「やったよ！」は消えた
-- 「そだね。」を選択 → セッション読み込み完了 → Resume Summary or Full の選択画面まで到達 ← ここまで来れば aeed7cdd 新版が正常にロード成功した証拠 (Win 2/3 で長らく不発だったポイント)
-- 結論: Drive 同期事故修復は完全に効く。aeed7cdd の #16 完結履歴は Win 2/3 でも永続 resume 可能
+**経緯:** #17 を /end で締めた後、ユーザーが /resume で同セッション (a9c6df23) を再開して継続作業。Mac 1 で aeed7cdd resume 不発の追加問題が発覚 → Phase 10 wrapper 設計・実装 → Drive 同期事故が構造的に厄介と判明 → aeed7cdd 完結版を Drive 圏外に避難。
+
+**1. Phase 10: claude wrapper 実装 ✅ (commit `1500964`)**
+- 動機:
+  - Phase 8 SessionStart hook は picker 表示後に発動 → claude --resume 1 回目では他 PC jsonl が picker に出ない
+  - 「2 回起動 (即 /exit + 再 resume)」運用で空ゴミセッション (例: b6e607f3 = 2.7KB / no user) が picker に蓄積
+- 実装:
+  - `scripts/pre_claude_sync.sh`: stdin 不要、$PWD から cwd 算出 → 兄弟フォルダの jsonl を mtime 比較で copy
+  - `scripts/cleanup_empty_sessions.sh`: ユーザー発言 0 件 + mtime 5 分以上古い jsonl を `~/.claude/projects-trash/` に退避
+  - `scripts/claude_wrapper.sh`: bash/zsh 両対応の `claude()` 関数。本物 claude 起動前に上記 2 つを実行
+  - `deploy.sh`: 17 → 20 工程に拡張、3 スクリプトを `_claude-sync/session-recall/` に配布
+  - `_claude-sync/setup.bat` Step 4e / `setup_mac.sh` Step 4.6: `.bashrc` / `.zshrc` に source 行注入
+- Win 単体テスト: `.bashrc` 注入完了、新規 bash で claude function 定義確認 ✅、ゴミ jsonl 3 件 (b6e607f3 / 0f036cd5 / c85fa6e5) を `projects-trash/` に退避 ✅
+
+**2. Mac 1 での aeed7cdd resume 不発: Drive 同期事故 part 2 発覚 ⚠️**
+- Win で #17 修復した aeed7cdd 新版 (1.88MB / 01:56) が Mac 1 に届かない
+- Mac 1 の状態: aeed7cdd jsonl は **両フォルダとも 1.55MB / 02:21** で固定
+- 原因: Mac 1 で aeed7cdd ローカル更新 (claude --resume 試行で touch) → Drive 同期で「Mac 1 ローカルが新 mtime で勝った」競合解決 → Win 修復版が古い扱いで巻き戻された
+- **Win 側にも巻き戻りが伝播**: Win 正規フォルダの aeed7cdd も 1.88MB から **1.55MB に上書きされた**ことを実機確認 (02:21)
+- 副作用として Mac 1 picker に空ゴミセッション 3 件 (`/exit` 4.6KB / 3.4KB / 4.4KB) が増殖していることも確認 → Phase 10 wrapper の必要性が完全証明
+
+**3. aeed7cdd 1.88MB 完結版を Drive 圏外に避難 ✅**
+- 退避フォルダ `(1)-退避-20260427-014007` に 1.88MB が唯一残存
+- ローカル `~/aeed7cdd-backup/aeed7cdd-complete-1882349B-20260427-013556.jsonl` にコピー保存
+- これで何があっても #16 完結 jsonl は失われない
+
+**4. Picker 表示ロジック詳細 (経験的に判明)**
+- picker は jsonl 内の「最後から 1 つ前の user 発言」を採用
+- aeed7cdd 古版 (3 件 user 発言) → L260「やったよ！」が picker に
+- aeed7cdd 新版 (#16 全完結) → 「そだね。かつ、普段の終了処理もね。」が picker に
+
+### 残課題 (#19 以降)
+
+**A. Phase 10 wrapper の Mac 側実機検証 (このセッションでは未完)**
+- Mac で `bash setup_mac.sh` 実行 → Step 4.6 が `.zshrc` に source 行追加するはず
+- ユーザー曰く「ダブルクリック起動だとダイアログ瞬閉じで結果見えず」「`type claude` で `/Users/nock_re/.local/bin/claude` (普通のコマンド)」 = wrapper 効いていない
+- → Mac で `bash ~/Library/CloudStorage/.../マイドライブ/_claude-sync/setup_mac.sh` をターミナル経由で実行 → 出力確認 → `.zshrc` source → `type claude` で `shell function` 表示確認、が次のステップ
+- Mac wrapper 効けば: 起動時にゴミ /exit 3 件削除 + 兄弟フォルダから自フォルダに copy が走る
+
+**B. Drive 同期事故の構造的対策 = Phase 11 候補**
+- Phase 10 wrapper は「同 PC ローカルの兄弟フォルダ間 copy」が責務、PC 間 Drive 同期競合は別問題
+- Drive 同期で複数 PC が同名 jsonl を更新すると、新 mtime が勝ち、古い側が上書きされる事故が起きる
+- 候補:
+  - (i) 複数 PC で同セッションを並行 active にしないルール (運用)
+  - (ii) jsonl への書き込みを排他制御 (技術的に困難、Claude Code 本体改修が必要)
+  - (iii) 完結セッションの jsonl を `~/.claude/projects-archive/` に移動して Drive 同期から外す (Drive 仮想 FS 制約で不可、Phase 9 と同じ詰み)
+  - (iv) 完結セッションの jsonl を読み取り専用にする (chmod 444、ただし claude が touch するならエラー)
+- 実用的には (i) しか残らない可能性。Phase 11 として再設計検討
+
+**C. もう一台 Win 3 の同期確認 (Drive 同期で修復伝播)**
+- Win 3 (もう一台の HP-Pavilion-myhome 系) でも同様に aeed7cdd 修復が届くはず
+- 今回の Drive 同期事故 part 2 で巻き戻った状態なら、Win 3 でも 1.55MB のはず
+- 必要なら退避バックアップから再上書きで復元
+
+**D. 別 PC で resume できない問題への運用ルール**
+- このセッション (a9c6df23) も Mac 1 では古版 948KB が picker に表示される (Win 1.9MB+ が届いていない)
+- 諦めて新規セッションで HANDOFF/SESSION_HISTORY 読んで継続が現実解
+- 「別 PC への移動 = 新規セッション」を運用ルール化候補
 
 **B. もう一台 (Win 3) の修復確認**
 - HP-Pavilion-myhome は Win 2 か 3 のどちらかと判明 (gitattributes 未 setup なので Win 1 ではない、と特定)
