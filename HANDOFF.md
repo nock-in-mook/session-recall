@@ -512,39 +512,63 @@ if hasattr(sys.stderr, "reconfigure"):
 - ⬜ Win 3: resume が picker に出てこない (#17 で診断)
 - ⬜ 同期未参加 Win 1 台: setup.bat 実行で全部入る (Step 4d 含む)
 
-### 残タスク (#17 で診断する: Win 2 / 3 の resume 不発)
+### セッション #17 でやったこと (2026-04-27 早朝): Win 2/3 picker 不発の真因究明 + Drive 同期事故修復
 
-**症状:** Win 2 / 3 で `claude --resume` してもこのセッション (`aeed7cdd-5330-4aec-b72a-663850a60f1b`) が picker に出てこない。ユーザー曰く Google Drive クライアントは「最新」となっている。
+**目的:** HP-Pavilion-myhome (Win 2 か 3) で aeed7cdd セッションが resume できない件の診断。
 
-**Drive 経由 (Win 1 から) で確認できたこと:**
-- `_claude-sync/projects/` 配下に 3 つの session-recall 系フォルダ存在:
-  - `-Users-nock-re-Library-...---------Apps2026-session-recall` (Mac 用、aeed7cdd ✓)
-  - `G----------Apps2026-session-recall` (Win G ドライブ用、aeed7cdd ✓)
-  - `G----------Apps2026-session-recall (1)` (Drive 同期重複、aeed7cdd ✓)
-- → **Drive レベルでは全フォルダに jsonl 到達済み**
+**1. 当初の症状認識:** 「picker に aeed7cdd が出ない」と思っていた → **誤認だった**
+- 実際は picker に **「やったよ！」 1.1MB 2 hours ago** として出ていた
+- Claude Code の picker は jsonl 内の **「最後から 1 つ前の user 発言」** を表示する模様（aeed7cdd 古版なら L260「やったよ！」）
+- ユーザー視点では「やったよ！」が aeed7cdd だと識別できなかったため「不発」と感じた
 
-**疑わしい原因 (要 Win 2 実機検証):**
-1. Win 2 / 3 の `~/.claude/projects/` が junction じゃない (setup.bat 未実行 / 壊れた / 古い設定のまま実 dir)
-2. Drive Desktop が **Stream モード**で、jsonl がオンデマンド DL 未取得 → picker のリストアップに見えない
-3. `claude --resume` の cwd が違う (session-recall フォルダ以外で起動している)
-4. `(1)` 重複フォルダに二次的 Drive 同期事故 (例: Win 2 の memory が `(1)` 側に行ってる)
+**2. 真の問題:** picker に出ても **クリックしても resume が完走しない**
+- 失敗 PC 2 台 (HP-Pavilion-myhome 系) で同じ症状 → 偶然ではない
+- 成功 PC は Mac 1 と推定（picker 表示が「そだね。かつ、普段の終了処理もね。」 1.8MB 2 hours ago）
 
-**次セッション (#17) で診断する手順:**
-1. Win 2 で `claude` **新規起動** (resume 効かないので新規でいい)
-   - cwd は `G:\マイドライブ\_Apps2026\session-recall` 必須（cwd が違うと診断にならない）
-2. 起動直後に「Win 2 で Phase 8 hook 不発、診断して」と指示
-3. 起動後 Claude が以下を確認:
-   - `ls -la ~/.claude/projects` ← lrwxrwxrwx になっていれば junction OK、drwxr-xr-x なら実 dir で同期されてない
-   - `cat ~/.claude/settings.json | python -c 'import sys,json; d=json.load(sys.stdin); print([h["command"][:80] for e in d["hooks"]["SessionStart"] for h in e["hooks"]])'` ← sync_sessions が登録されているか
-   - `cat ~/.claude/session-recall-sync.log 2>/dev/null | tail -3` ← hook 発火履歴
-   - `ls ~/.claude/projects/G----------Apps2026-session-recall/*.jsonl | head` ← jsonl がローカル展開されているか (Stream モード判定)
-4. 原因に応じた処置:
-   - junction 不在 → `setup.bat` 再実行 (Developer Mode 確認込み)
-   - Stream モード → エクスプローラで `_claude-sync/projects/G----...` を一度開く (オンデマンド DL 強制)、または Drive Desktop 設定で Mirror モード切替
-   - 個別バグ → 該当箇所修正
-5. 修正後 Win 2 で gitattributes セットアップ完了 (`bash` 経由 2 行でも `setup.bat` 経由でも可)
-6. Win 3 でも同じ手順で対処
-7. 同期未参加 Win も `setup.bat` ダブルクリックで一気に解決 (Step 4d 含む)
+**3. 真因確定: Drive 同期事故**
+- 失敗 PC 2 台では aeed7cdd が **PC ローカルで 2 つに分裂**：
+  - 正規 `~/.claude/projects/G----------Apps2026-session-recall/aeed7cdd-...jsonl`: **古版 1.18MB / 22:40 / 461 行 / Win cwd 単独**
+  - 重複 `~/.claude/projects/G----------Apps2026-session-recall (1)/aeed7cdd-...jsonl`: **新版 1.88MB / 22:54〜01:35 / 796 行 / Win+Mac cwd 混在 = #16 全完結状態**
+- picker は正規フォルダしか見ない → 古版 (壊れた途中状態) を表示し、resume すると壊れた状態から復元しようとして失敗
+- 成功 PC (Mac 1) では正規フォルダに新版が直接届いていた → picker でも resume でも正常
+
+**4. 修復実行 (HP-Pavilion-myhome 上で実施)**
+- バックアップ: `~/.claude/projects-backup-before-merge/regular-20260427-013810/` に 21 jsonl 保存
+- `(1) → 正規` マージ:
+  - `aeed7cdd-...jsonl`: 1183716 → **1882349 bytes** (#16 完結版で上書き)
+  - `525960e0-...jsonl`: mtime 8 秒差の補正
+  - セッション artifacts 3 ディレクトリ (`6f741a14`, `83d73da9`, `c9930225`): copytree
+  - `memory/feedback_exit_documentation.md` (1994B): copy (正規 memory 側になかった)
+  - `memory/MEMORY.md`: 正規の方が新しいため skip
+- (1) フォルダ全体を `(1)-退避-20260427-014007` にリネーム (削除でなく退避、必要なら復元可)
+- Drive 同期で他 PC (Mac/Win 1/Win 3) にも伝播するはず
+
+**5. picker 表示ロジック (経験的に判明)**
+- picker は jsonl 内の user メッセージのうち **「最後から 1 つ前」** を表示
+- aeed7cdd 古版 (user 発言 3 件: 「よし、やっていこう」/L3、「やったよ！」/L260、「次はmacで...」/L452) → picker は L260 の「やったよ！」を採用
+- aeed7cdd 新版 (user 発言数十件) → picker は #16 終盤の「そだね。かつ、普段の終了処理もね。」を採用
+
+### 残課題 (#18 以降)
+
+**A. 修復後検証 (Win 2/3 で claude --resume → 「そだね。かつ、普段の終了処理もね。」選択 → 起動成功するか)**
+- このセッション #17 内では未検証 (/exit 後の確認待ち)
+- もし修復後も resume 失敗するなら、aeed7cdd jsonl の cwd 混在 (Win 489 + Mac 160) や末尾エントリパターンが Claude Code 側で処理不能 = Phase 8 設計の追加課題
+
+**B. もう一台 (Win 3) の修復確認**
+- HP-Pavilion-myhome は Win 2 か 3 のどちらかと判明 (gitattributes 未 setup なので Win 1 ではない、と特定)
+- Drive 同期で今回の修復が Win 3 にも伝播するはずだが、Win 3 個別に (1) フォルダ残骸が残るパターンの可能性。要実機確認。
+
+**C. Drive 同期事故の構造的予防**
+- 今回の事故は構造的に再発しうる: Drive 同期で複数 PC が同時更新したファイルが `(1)` 付きフォルダに分裂する Drive Desktop の挙動
+- 予防策候補:
+  - (i) `~/.claude/projects/` を Drive 同期から外す (Phase 9 で詰んだ .git/ symlink と同じ問題)
+  - (ii) `(1)` 検知 → 自動マージスクリプトを cron 化 (今回の修復スクリプトをロジック化)
+  - (iii) 諦めて毎回手動マージ
+- → (ii) が現実解。 `_claude-sync/session-recall/scripts/heal_drive_dup.sh` 候補として ROADMAP 追加検討
+
+**D. picker 識別性の改善案**
+- 「やったよ！」みたいな曖昧表示で aeed7cdd と識別できない問題は再発する
+- SESSION_HISTORY 連番と紐付けて picker に補助表示する仕組み (jsonl 末尾に special user メッセージを noop で書き込む等) が候補
 
 ### Step 2: Mac での regression 確認 + PC 間等価性テスト
 1. Mac でセッション開始時に `mcp__session-recall__*` が deferred tools に出るか確認

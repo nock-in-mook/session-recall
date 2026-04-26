@@ -3,199 +3,527 @@
 ---
 
 🧑 あなた
-よし、やっていこう
+phase8 hook不発！このPCともう一台で。診断してくれる？
+
+🤖 Claude
+📡
+
+セッション開始処理と診断準備を並列で実行します。
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-状況把握した。セッション #14 終了時点で：
-- Win 3 台 + Mac での deploy 完了、bash フォールバック動作確認済み
-- **Phase 8** 設計確定（`sync_sessions.sh` + SessionStart hook で他 PC jsonl を自 cwd に symlink）
-- **Phase 9** 候補化（`.git/` を PC ローカルに symlink で逃がして Drive 上書き事故根絶）
-- 既知バグ: semantic.sh の Windows cp932 エンコードエラー
-
-ROADMAP の最新状態を確認する。
+HANDOFF #17 の診断手順把握。前回 (#16) で残された宿題：Win 2/3 で `claude --resume` してもセッションが picker に出ない件。今いる PC を特定して、HANDOFF L530-547 に書かれた診断 4 項目を一気に実行する。
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-セッション #15 開始。次に着手する候補は3つあって：
+おっ、重要な発見。**hook は実は発火している**。HANDOFF #16 の予想と現実が違う。
 
-- **Phase 8**: PC 横断 resume 自動化（`sync_sessions.sh` + SessionStart hook）— 前回設計確定済み、自然な次手
-- **Phase 9**: `.git/` を PC ローカル symlink 化（Drive 同期事故根絶、影響範囲は全 Drive 配下リポ）
-- **既知バグ修正**: `semantic.sh` の Windows cp932 エンコードエラー（小修正、5分）
+**ここは Win「HP-Pavilion-myhome」** (Clinic-dell でも Mac でもない、Win 2/3 のどちらか)。
 
-どれから手を付ける？
+**診断結果サマリー:**
 
-↓
-(作業)
-↓
+| チェック項目 | 結果 |
+|---|---|
+| `~/.claude/projects/` は symlink？ | ✅ symlink (lrwxrwxrwx) |
+| SessionStart hook 登録？ | ✅ 3 つ登録済 (sync_sessions / start_remote_monitor / archive_prev_session) |
+| hook 発火履歴 | ✅ **発火している** (最終 2026-04-27 00:13:34) |
+| 自フォルダに jsonl ある？ | ✅ 21 個存在 |
+| **このセッション (aeed7cdd) の jsonl 自フォルダにある？** | ✅ **居る** |
 
-🤖 Claude
-実機状態確認できた。`~/.claude/projects/` には既に Mac/Win/Dropbox 全 PC 由来のフォルダが共存（Drive 同期経由）。session-recall の各 PC フォルダも見えてる。
-
-タスク立てて進める。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-重要な発見：既存 SessionStart hook が既に2つある（`start_remote_monitor.sh`、`archive_prev_session.sh`）。同じパターンで3つ目を追加すれば良い。あと **`G----------Apps2026-session-recall (1)`** という重複フォルダが…これは Drive 同期事故の痕跡。後で対処。
-
-既存 hook のパターンを参照する。
+つまり Phase 8 hook は完璧に動いている。問題は「picker に出ない」だけ。先に追加で確認。
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-実機状態の追加発見がいくつかあるので報告：
+詳細データ揃った。重要な発見だらけ。
 
-1. **既存 SessionStart hook が 2 つある** (`start_remote_monitor.sh`、`archive_prev_session.sh`)。3 つ目を同パターンで追加すれば良い ✅
-2. **`G----------Apps2026-session-recall (1)` という重複フォルダがある** ← Drive 同期事故の痕跡。中身は別 PC の jsonl 群。これも sync 対象にすべき
-3. **`archive_prev_session.sh` が良い実装パターン**: stdin から `transcript_path` を grep 抽出 → バックグラウンド実行 → 即 exit 0
+**核心:**
+- aeed7cdd の jsonl は自フォルダに **1.18 MB の実データで居る**（placeholder じゃない、ちゃんとローカルに展開済み）
+- hook は 00:13:34 に発火、`copied=0 skipped=40` = 「全 jsonl 自フォルダに既存」と判定
+- このセッション自体は新規 (a9c6df23-..., 00:17 開始) で、aeed7cdd の resume ではない
 
-ここで設計判断ポイントが1つ。**他 PC jsonl を自フォルダに置く方法**：
+つまり、**Phase 8 hook は完璧に動いていて、jsonl も置けている**。残る謎は「なぜ Win 2/3 で picker に出ないのか」。Win 1 (Clinic-dell) では出た差分を探す。
 
-↓
-(作業)
-↓
-
-🤖 Claude
-push 完了 (`ae71d71`)。Phase 8 実装完了 + Win 単体テスト ✅。
-
-残るは「次回セッション開始時に **自動的に** SessionStart hook が発火するか」の実機検証。これは `/exit` → `claude --resume` 後でないと確認できない。
+Claude Code 本体側の picker enumerate に問題がある可能性。追加診断：
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-基準値記録完了。`/exit` → `claude --resume` で発火確認する。
+`attrib` の cmd path 変換が壊れた。PowerShell で再確認。それと **summary エントリが全 jsonl に皆無** という発見、あと **Win 1 で成功して Win 2/3 で失敗の差分** を詰める。
 
-**手順：**
-1. `/exit` でこのセッションを閉じる
-2. ターミナルで `claude --resume` を実行
-3. picker からこのセッション（aeed7cdd...、最新のはず）を選択
-4. 戻ってきたら一言ください
+↓
+(作業)
+↓
 
-resume 後、ログに新しい行（`13:50` より後の timestamp）が追記されていれば自動発火 OK。settings.json には [sync_sessions] hook がちゃんと並んでる ✅。
+🤖 Claude
+決定的な情報がいくつも出た。整理：
+
+| 検証項目 | 結果 |
+|---|---|
+| Drive ファイル属性 | ✅ `Normal` (Online-only ではない、完全ローカル) |
+| cwd 一致 | ✅ aeed7cdd と現セッションともに `G:\マイドライブ\_Apps2026\session-recall` |
+| **このPC は Win 2/3 確定** | ❌ `~/.gitattributes` 無し + `core.attributesfile` 未設定 (Win 1 では設定済み) |
+| **このセッションの起動方法** | `<local-command-stdout>Resume cancelled</local-command-stdout>` ← /resume したが**キャンセルされた** = picker に目的物が出なかった証拠 |
+
+最重要の疑い：**`G----------Apps2026-session-recall (1)` 重複フォルダの存在**。Drive 同期事故で 2 つの正本が並んでいる。Claude Code の picker は「正規」フォルダしか見ないはず。Win 1 では発生せず、Win 2/3 でだけ発生している可能性。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+**核心の発見：**
+
+`(1)` 重複フォルダにある aeed7cdd jsonl が、**正規フォルダのものより新しくて大きい**：
+
+```
+正規:  1,183,716 bytes  Apr 26 22:40
+(1):   1,870,486 bytes  Apr 26 22:54  ← こっちが真の最新
+```
+
+つまり Drive 同期事故で、aeed7cdd の最新更新（おそらく Mac 2 / Win 1 で /exit したときの最終書き込み）が、**このPC では `(1)` フォルダ側にしか到達していない**。Claude Code の picker は正規フォルダしか見ないから、表示される aeed7cdd は古い情報のもの。これが picker から消えている直接の原因かどうかはまだ仮説段階だが、**Drive 同期事故が再発しているのは確定**。
+
+しかも：
+- 99c0e120 (前 #15) は逆に **正規が新しい**（13:22 vs 12:34）→ Drive 衝突がファイルごとにランダムに分かれている
+- ハードリンク数が全 jsonl で `0` になってるのも気になる（Drive 仮想 FS の特殊動作の可能性）
+
+**現状の診断結果まとめ:**
+
+| 項目 | 結果 |
+|---|---|
+| Phase 8 hook の発火 | ✅ 完璧に動いてる (00:13:34 にも発火) |
+| 自フォルダに jsonl 存在 | ✅ 21 個、aeed7cdd も居る |
+| cwd 一致 | ✅ |
+| Drive ファイル属性 | ✅ Normal (Online-only ではない) |
+| settings.json hook 3 種類 | ✅ 全部登録済 |
+| `~/.gitattributes` | ❌ 未 setup (このPCは Win 2/3 確定) |
+| **★ Drive 同期事故** | ⚠️ aeed7cdd 最新版が `(1)` フォルダ側にある |
+| /resume の結果 | キャンセルされた = picker に目的物なし |
+
+**ユーザーに確認したいことが 1 つ:**
+
+このセッション開始前に `claude --resume` を試したとき、picker に何が表示されてた？
 
 ↓
 (作業)
 ↓
 
 🧑 あなた
-やったよ！
+2かなぁ。pickerのスクショでもとってこようか？まぁどのセッションか判別できないかもだけど。
 
 🤖 Claude
-📡
+スクショ歓迎！ただ、それと並行で、**「本来 picker に表示されるべき各 jsonl の summary 文字列」を抽出**しておこう。Claude Code の picker は jsonl の summary entry か最初の user メッセージを表示するから、それと照らし合わせれば「aeed7cdd だけ消えてる」が判定できる。
 
-おかえり！ログ確認する。
+スクショ取ってきてもらう間に、こっちでリスト作っておく。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+ピッカーは僕の最後の発言？かその近辺くらいが表示されることが多いけどね。
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-**自動発火確認 ✅**
+ユーザー指摘で picker ロジックの理解が変わった。最後の方の user 発言で表示されるなら、**末尾の user message** を抽出すべき。あと **(1) 側の新版と比較**も並行で。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+まぁ、最悪、その発言がどこにあるか徹底的に探れば、どのセッションが表示されてるか特定できるかもだね
+
+🤖 Claude
+**決定的な発見！** Drive 同期事故が原因確定。
+
+| | 行数 | 最終更新 | **最後の user 発言（picker 表示）** |
+|---|---|---|---|
+| **正規** aeed7cdd | 461 行 | 22:40 | **「次はmacで新セッションで良き？」** ← #15 終了直後 |
+| **(1) 側** aeed7cdd | 796 行 | 22:54 | **「そだね。かつ、普段の終了処理もね。」** ← #16 全部入り |
+
+つまり：
+
+1. このPC (Win 2/3) では、Drive 同期事故で **#16 の進捗 335 行ぶん** (あなたが Mac 2 → Win 1 と渡り歩いて gitattributes セットアップした全工程) が **(1) フォルダにしか到達していない**
+2. picker は正規フォルダしか見ないから、出るとしたら「次はmacで新セッションで良き？」(#15 直後の古い状態) のはず
+3. ユーザーが「aeed7cdd 出てない」と認識したのは、たぶん **古い表示文字列で並んでいて気づかなかった**か、**picker のロジックが古い jsonl を弾いている**かのどちらか
+
+スクショ前に、picker の現状候補リストを揃えておく：
+
+| # | 表示される最後の発言 |
+|---|---|
+| 1 | aeed7cdd → **「次はmacで新セッションで良き？」** |
+| 2 | 99c0e120 → 「よし、計画に組み込もう」 |
+| 3 | dc2347ea → 「うん、WINDOWSいこうか」 |
+| 4 | 742c9c6e → 「うん、続けてよ」 |
+| 5 | 525960e0 → 「いいよ！」 |
+| 6 | 6f741a14 → 「そだね。あと2台のWindowsで導入済ませて...」 |
+
+**スクショ取ってきてもらえれば最速で確定**できる。並行して、確実な対処法も決まった：
+
+**対処策（次のステップで実施）:**
+1. (1) フォルダの新版 aeed7cdd を正規フォルダに上書き → picker で「そだね。かつ、普段の終了処理もね。」が表示される → 選べば **#16 続きから resume 可能**
+2. (1) フォルダを削除 → 今後の Drive 同期事故を予防
+
+スクショ取ってきて。並行で別のもう一台 (Win 3) の方の同じ診断も次にやる流れで。
+
+🧑 あなた
+まぁ、最悪、その発言がどこにあるか徹底的に探れば、どのセッションが表示されてるか特定できるかもだね
+
+↓
+(作業)
+↓
+
+🤖 Claude
+(1) フォルダパスのスペースで bash glob が壊れたけど、(1) のデータは前回取得済みなので問題なし。**picker 表示候補リスト** をきれいに整理：
 
 ```
-[14:07:04] copied=0 skipped=18
-[14:07:17] copied=0 skipped=18
+mtime           UUID      最後の user 発言（picker 表示文字列の予想）
+─────────────────────────────────────────────────────────────────
+04-27 01:16     a9c6df23  まぁ、最悪、その発言がどこにあるか... ← 今のセッション (picker には出ない)
+04-26 22:40     aeed7cdd  次はmacで新セッションで良き？        ← #15 終了スナップショット
+04-26 13:22     99c0e120  よし、計画に組み込もう
+04-25 21:33     b6e607f3  (no user)                            ← picker から弾かれる可能性
+04-25 18:53     dc2347ea  うん、WINDOWSいこうか
+04-25 18:43     742c9c6e  うん、続けてよ
+04-25 17:30     525960e0  いいよ！
+04-25 14:18     6f741a14  そだね。あと2台のWindowsで導入済ま...
 ```
 
-13:50 の手動テスト後、resume タイミング（14:07）で 2 回 hook が発火。`copied=0` は冪等が効いてる証拠。Phase 8 の Win 側実装は完璧に動いてる。
+スクショ取ってきて照合すれば picker に表示される全セッションが一意に特定できる。
 
-2 行ある理由は推測：1 回目が `startup` matcher、2 回目が `resume` matcher で発火、または Claude Code が picker 表示前後で 2 回呼ぶ仕様。実害はないが、後で軽く調査しても良い。
+別 PC の状態もついでに分かった：
+- **Mac cwd フォルダ** の aeed7cdd は 22:27 / 「間違えて同じマシンでやってたよ。今度こそ移動してきたよ！」 ← Mac 2 から見える最終状態
+- **(1) フォルダ** の aeed7cdd は 22:54 / 「そだね。かつ、普段の終了処理もね。」 ← どの PC の picker からも見えない、Drive 同期の孤児
 
-↓
-(作業)
-↓
+つまり Drive 同期事故で、aeed7cdd セッションが **PC ごとに異なるスナップショット** を見ている、という凄まじい状況。スクショ待ち。
 
-🤖 Claude
-**Phase 8 完成度サマリー：**
-- ✅ scripts/sync_sessions.sh 実装
-- ✅ scripts/register_hook.py 実装
-- ✅ deploy.sh Phase 8 拡張
-- ✅ Win 単体テスト (copied=17 skipped=1、冪等性 OK)
-- ✅ Win SessionStart hook 自動発火（resume で実証）
-- ⬜ Mac 側で picker への反映確認（次セッションで Mac 起動時）
-- ✅ commit `ae71d71` push 済
-
-次の選択：
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_011902.png
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-Drive Desktop は native で folder exclude 不可。「Drive 外格納 + symlink で置換」が既知 workaround。Win で symlink (`/D`) を試す（junction は NTFS 限定で失敗、symlink は cross-volume OK のはず）。
+★ **picker に aeed7cdd は居た！** 「**やったよ！**」(1.1MB / 2 hours ago) がそれ。サイズ・時刻が aeed7cdd 正規版 (1155K / 22:40) と一致。
+
+picker は最後の user メッセージじゃなく、**セッション中盤の特定発言** で表示してるっぽい (SESSION_LOG 確認すると「やったよ！」は #15 内の Phase 8 hook 動作確認で resume したときの発言)。だから「次は mac で新セッションで良き？」を探しても見つからなかった。
+
+picker (1 of 17) でも分かるとおり、ユーザー発言の少ない jsonl 4 件は弾かれてるが、**aeed7cdd 含めて主要セッションは全部出てる**。
+
+**つまり:**
+- ❌ 「Win 2/3 で aeed7cdd 出ない」 = **誤認だった**
+- ✅ aeed7cdd は picker に出ているが、表示テキストが「やったよ！」で識別困難
+- ⚠️ ただし選択して resume しても、読み込まれるのは正規版の #15 終了直後スナップショット。#16 内容（gitattributes セットアップ全工程）は (1) フォルダにあって**ロードされない**
+
+タスク整理する。
+
+↓
+(作業)
+↓
+
+🧑 あなた
+いや、やったよ！をクリックしても、ダメなんだ。途中なんだ。成功版と失敗版のスクショでもとってみようか。
+
+🤖 Claude
+ああ、症状違ったか。**クリックしても resume が完走しない** = picker 表示は OK だけど load 段階で死ぬ。これは別の問題。
+
+成功版と失敗版のスクショ両方くれると、ターミナル出力の差分で原因特定できる。**特にエラーメッセージ・スタックトレース・「resuming...」の後に何が出るか**が決定的。
+
+もし可能なら：
+- **失敗版**: このPC (HP-Pavilion-myhome) で「やったよ！」をクリックしたあと出る画面
+- **成功版**: 別 PC（Mac か Win 1）で同じ aeed7cdd を resume したときの画面（もう過ぎた話なら無理だけど、Mac 1 でまだ aeed7cdd 開けるなら新しく撮ってもらえると◎）
+
+スクショ待ち。
+
+🧑 あなた
+だめなPC２台。成功するPC１台。で、ダメなPC２台はどちらも「やったよ！」が表示されてるんだ。これは偶然とは思えない。
+
+🧑 あなた
+スクショもとってくるよ
+
+🧑 あなた
+[Request interrupted by user]
+
+↓
+(作業)
+↓
+
+🧑 あなた
+/resume
+
+🤖 Claude
+★ **真因らしきものを発見** ★
+
+| | 末尾の 5 エントリ | 状態 |
+|---|---|---|
+| 正規 (古版) | permission-mode → file-history-snapshot × 4 | **ターン未完成で書き込み中断** |
+| (1) 新版 | user → attachment → assistant × 2 → system(turn_duration) | **完結したターン** |
+
+つまり **正規 (古版) aeed7cdd jsonl は壊れた状態で書き込みが止まってる**（JSON 自体は壊れてないが、セッション state として中途半端）。Drive 同期で書き込み途中に切れて、続きが (1) フォルダに流れた典型パターン。
+
+Claude Code は中途半端な末尾の jsonl を resume 失敗扱いする可能性が高い。これが「**やったよ！クリック → resume 完走せず**」の原因。
+
+ユーザーが「ダメな PC 2 台で picker 表示が両方『やったよ！』」と気付いたのは正解で、**両 PC とも同じ古版（壊れた版）を見ている**から。
+
+成功 PC ではたぶん正規版がもっと進んだ状態 (= (1) ではなく正規に新版が入っている)。スクショ来たら確証取れる。
+
+→ **修復策が確定**：
+1. (1) フォルダの新版 aeed7cdd jsonl で正規を上書き
+2. 既存 21 個の jsonl 全体で同じ事故が起きてないか check
+3. (1) フォルダ削除（次回以降の Drive 同期事故予防）
+
+待ってる間にもうちょい調査。**他の jsonl も同じ事故起きてるか**を 21 個全部 check：
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-詰みポイント発見。**Google Drive の仮想 FS は symlink も junction も完全拒否**する。`mklink /D` も「このデバイスではシンボリックリンクがサポートされていません」エラー。
+ごめん、検証広げたら **ほぼ全 jsonl が file-history-snapshot か permission-mode で終わってた** = この終わり方は壊れてるんじゃなく、Claude Code が普通にセッション終了時に書く尾びれっぽい。「中途半端だから resume できない」仮説は **誤り**だった、撤回。
 
-調査結果まとめ：
-- Drive Desktop は native でフォルダ exclude 不可（[Google Drive Community](https://support.google.com/drive/thread/199153043/excluding-files-and-folders-from-google-drive-sync-is-it-possible) 参照）
-- Drive 配下にリンク作成は OS 機能ごと拒否される（Win 実機で確認）
-- 既知 workaround ([gsusI/google-drive-gitignore-workaround](https://github.com/gsusI/google-drive-gitignore-workaround)) も「Drive 外格納 + symlink 置換」だが、複数 PC 同期問題は未解決
+つまり aeed7cdd 古版が壊れてるんじゃなくて、**何か別の理由で resume が完走しない**。スクショ待ち継続。特に欲しいのは：
+- 失敗 PC で「やったよ！」クリック後の **画面遷移とエラーメッセージ**
+- 成功 PC での aeed7cdd の **picker 表示文字列**（「やったよ！」とは違うはず）
+
+それで resume 失敗の真因が特定できる。
+
+🧑 あなた
+C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_012644.png これが、成功しているPCのスクショ
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-**Phase 9 設計の中間報告（やや詰まった）：**
+★ 成功 PC のスクショから決定的な情報 ★
 
-| 方式 | 結果 |
+| | picker 1 件目 | サイズ | 経過 |
+|---|---|---|---|
+| 失敗 PC | やったよ！ | **1.1MB** | 2 hours ago |
+| 成功 PC | Aかな！正確には、Claude立ち上げてから/resume.. | **1.4MB** | 12 hours ago |
+
+成功 PC の「Aかな！」 12 hours ago 1.4MB = **99c0e120 (Mac cwd, 12:34, 1396K)** の特徴と一致 → **成功 PC は Mac 1** と推定。
+
+驚き発見：成功 PC の picker 上位 6 件に **aeed7cdd が見当たらない**。Mac で aeed7cdd 22:27 (3時間前) が居れば 1 件目に来るはず。**最近 active セッションは picker から除外されている**可能性。
+
+つまり picker ロジック仮説：
+- 「やったよ！」は aeed7cdd の picker 表示（失敗 PC で）
+- Mac では aeed7cdd 自体が picker から外れている（既に resume 済みで active）
+- 失敗 PC で「やったよ！」をクリックして resume 失敗 → **「やったよ！」は別の何か**かも
+
+タスク状況更新する。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+「やったよ！」が aeed7cdd 確定（2 hours ago + 1.1MB の組み合わせで他に候補なし）。じゃあなぜ picker は「やったよ！」を選ぶ？jsonl 内の「やったよ！」位置を確認。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+aeed7cdd の user 発言は **たったの 3 件**！
+
+```
+L  3: よし、やっていこう       ← 最初の挨拶
+L260: やったよ！             ← ★ picker 表示
+L452: 次はmacで新セッションで良き？ ← 最後
+```
+
+→ picker は「**最後から 1 つ前の user 発言**」を表示してるっぽい (L260)。
+
+(1) の新版なら user 発言が #16 で 数十件 増えてるから、表示は別文字列になるはず。でも resume 失敗の根本原因は別。
+
+最後の仮説：**cwd 混在問題**。aeed7cdd は Mac で開始 → Win で resume → ... と渡り歩いたから、jsonl 内に Mac cwd と Win cwd が混じってる可能性。Claude Code が cwd 切替で混乱して resume 失敗するかも。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+★ **真の犯人見えた** ★
+
+| | cwd 値 |
 |---|---|
-| Win junction | ❌ 「ローカル NTFS ボリュームには両方のパスを必要」(Drive は仮想 FS) |
-| Win symlink | ❌ 「このデバイスではシンボリックリンクがサポートされていません」(Drive 拒否) |
-| Mac symlink | ⚠️ 起動時のみ同期、regular file 扱い、PC ごとパス違い → 死亡 |
-| Drive Desktop selective sync | ❌ サブフォルダ単位の除外サポートなし |
-| 第三者ツール Insync ($30) | △ glob exclude 可だが要購入 |
-| gitfile (.git as `gitdir:` text) | ❌ PC ごとに内容違う必要 → Drive 同期で衝突 |
+| **正規 (古版)** | Win cwd のみ × 389 回 |
+| **(1) 新版** | Win cwd × 489 + **Mac cwd × 160** 混在 |
 
-**結論**: Drive 同期と git の同居は技術的に詰まる。残る選択肢：
+つまり aeed7cdd の「真の最新版」は (1) の方で、そこには **Mac でも resume された痕跡** (Mac cwd エントリ 160 個) が含まれてる。Drive 同期事故で、「Win cwd 部分」だけが正規に、「Mac cwd 部分含む全進化」が (1) フォルダに分かれてしまった。
+
+なぜ「やったよ！」クリックで失敗するかは依然不明だが、**確定事項**：
+1. 失敗 PC で resume できる「やったよ！」 = aeed7cdd 古版 (Win 単独 / 中身は #15 終了直後まで)
+2. (1) フォルダに正しい新版 (#16 完結状態) がある
+3. 修復策は **(1) → 正規上書き + (1) フォルダ削除**
+
+どう進める？
+
+↓
+(作業)
+↓
+
+🧑 あなた
+ちょっとまって、ピッカーをクリックした後の画面もみせようか？どこから復元されているか。
+
+🤖 Claude
+ぜひ！それ決定的な情報。「picker クリック後の画面」を見れば：
+- 失敗 PC で「やったよ！」クリック → どこから復元しようとして、どこで死ぬか
+- 成功 PC で aeed7cdd resume → どんな状態が復元されるか
+
+スクショ待ち。
+
+🧑 あなた
+あ、まって、成功PCはセッション中にresumeしたから、まさにそのセッション自体が見えなくなってたんだ、きっと。C:\Users\msp\AppData\Local\Temp\claude_screenshots\ss_20260427_013452.png 正式にexitすると、こう。これが成功PCのresume
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-Phase 9 結論コミット `7d5fe0e` push 完了。今セッションでやったこと：
-- ✅ Phase 8 完全実装（Win 自動発火実証まで）
-- ✅ Phase 9 検討 → 技術的詰みを実証 → CLAUDE.md Step 0 に巻き戻り検知ロジック組み込み
+★★★ **完全に原因特定！** ★★★
 
-残タスク：Mac での picker 反映検証 (#7)、既知バグ semantic.sh cp932 (#13 候補)。
+成功 PC の picker 1 of 18:
+
+```
+C:\Users\msp\AppData\Local\Temp\claude_screensh...  3 minutes ago  942.5KB  ← 今このセッション (a9c6df23)
+そだね。かつ、普段の終了処理もね。           2 hours ago    1.8MB    ← ★ aeed7cdd 新版！
+Aかな！正確には、Claude立ち上げてから/resume.  12 hours ago   1.4MB    ← 99c0e120
+/resume                                    1 day ago      2.7KB
+うん、WINDOWSいこうか                        1 day ago      216.8KB
+```
+
+「**そだね。かつ、普段の終了処理もね。**」 2 hours ago **1.8MB** ＝ **(1) フォルダの aeed7cdd 新版 (1.87MB / 22:54)** の特徴と完全一致！
+
+つまり Drive 同期事故の構図：
+
+| | 正規フォルダ aeed7cdd | (1) フォルダ aeed7cdd | picker 表示 | resume |
+|---|---|---|---|---|
+| **成功 PC (Mac)** | **新版** (1.8MB / 22:54) | (なし or 別) | 「そだね。かつ...」 | ✅ 成功 |
+| **失敗 PC × 2** | 古版 (1.1MB / 22:40) | **新版** (1.8MB / 22:54) | 「やったよ！」 | ❌ 失敗 |
+
+**真因確定**：Drive 同期事故で、aeed7cdd の最新書き込みが PC ごとに違う場所に到達。
+- Mac では正規フォルダに新版が届いた → picker と resume 両方 OK
+- Win 2/3 では正規に古版、新版は (1) フォルダに孤立 → picker は古版を表示、resume は古版から復元 → 何らかの理由で失敗（次の調査ポイント）
+
+**修復策（確実）:**
+1. Win 2/3 で `(1) フォルダの新版 aeed7cdd` を `正規フォルダの aeed7cdd` に上書きコピー
+2. (1) フォルダ全体を削除 (Drive 同期事故の温床を除去)
+3. **追加チェック**: (1) と正規で他の jsonl も比較し、サイズ/mtime で新しい方を選んで全部マージしてから (1) 削除
+
+修復実行する？
 
 ↓
 (作業)
 ↓
 
 🤖 Claude
-バグ修正コミット `00f42c7` push 完了。今セッション #15 の成果：
+きれいに整理できた。修復対象は **2 件のみ**：
 
-| commit | 内容 |
+- **aeed7cdd** ★主役: +698 KB / +3 時間進化。これが (1) に孤立してた #16 完結状態
+- **525960e0**: mtime 8 秒差のみ、ほぼ同じ（補正コピー）
+
+他 17 件は完全同一。a9c6df23 (今のセッション) と 99c0e120 は正規が新しいので触らない。
+
+aeed7cdd の (1) 側 mtime が **01:35:56** = ついさっき更新されてる。つまり Mac 1 で /exit した直後の最終 jsonl が今このPC の (1) フォルダに届いたばかり。**修復タイミング完璧**。
+
+実行する。バックアップ取ってから安全にコピー → (1) フォルダ削除。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+コピー完了！
+
+- バックアップ: `projects-backup-before-merge/regular-20260427-013810/` に 21 jsonl 保存済み
+- aeed7cdd: **1.18MB → 1.88MB** (#16 の 700KB ぶん追加)
+- 525960e0: 補正完了
+
+(1) フォルダ内に jsonl 以外のもの (memory フォルダ、拡張子なしファイル) が見える。安全に消すために中身全部リストアップ：
+
+↓
+(作業)
+↓
+
+🤖 Claude
+(1) フォルダに jsonl 以外のもの 4 種類: 3 つはセッション artifacts (subagents/tool-results)、1 つは memory フォルダ。これらが正規フォルダにもあるか確認。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+慎重対応が必要な追加発見：
+
+| (1) フォルダの非 jsonl | 正規に対応物? | 中身 |
+|---|---|---|
+| `6f741a14-...` ディレクトリ | ❌ なし | subagents, tool-results |
+| `83d73da9-...` ディレクトリ | ❌ なし | tool-results |
+| `c9930225-...` ディレクトリ | ❌ なし | tool-results |
+| `memory/feedback_exit_documentation.md` | ❌ 正規 memory にない | 1994B |
+| `memory/MEMORY.md` (古い) | ✅ 正規の方が新しい | 上書きNG |
+
+**これらを失わないように**、(1) フォルダ削除前に正規へマージ。それから (1) は **削除ではなく退避リネーム** (後日確認できるように)。
+
+↓
+(作業)
+↓
+
+🤖 Claude
+★ **修復完了** ★
+
+| 結果 | 状態 |
 |---|---|
-| `ae71d71` | Phase 8: PC 横断 resume 自動化（sync_sessions.sh + SessionStart hook） |
-| `7d5fe0e` | Phase 9 結論: 技術的詰み + CLAUDE.md Step 0 強化で代替 |
-| `00f42c7` | semantic.py cp932 stdout バグ修正 |
+| 正規フォルダ aeed7cdd | **1.18MB → 1.88MB** (新版に置換) |
+| セッション artifacts 3 ディレクトリ | (1) → 正規にコピー |
+| memory/feedback_exit_documentation.md | (1) → 正規にコピー |
+| memory/MEMORY.md | 古い (1) 版は skip、正規版を保持 |
+| (1) フォルダ | `(1)-退避-20260427-014007` にリネーム (削除でなく退避) |
+| バックアップ | `projects-backup-before-merge/regular-20260427-013810/` |
 
-`/end` で締めます。
+**検証手順:**
+1. このセッション (Win 2/3) で `/exit`
+2. `claude --resume` を再実行
+3. picker で **「そだね。かつ、普段の終了処理もね。」** が表示されるか確認 (これが aeed7cdd 新版の picker 表示のはず)
+4. それを選んで resume できれば、Drive 同期事故修復成功 + #16 の続きから復元成功 ✅
+
+ただし注意：
+- Drive 同期で他 PC (Mac/Win 1/Win 3) にも今回の変更が伝播する。**Win 3 でも (1) フォルダがあれば同様に消える**ので、Win 3 の手動修復は不要になる可能性
+- Drive 同期事故は構造的に再発しうる。次の修復策として `~/.claude/projects/` を Drive 同期から外すか、または「`(1)` 検知 → 自動マージ」スクリプトを cron 化する案がある
+
+タスク #2 完了、#3 (Win 3 診断) は要相談に。
 
 ↓
 (作業)
 ↓
+
+🤖 Claude
+/exit して `claude --resume` 試して、picker に **「そだね。かつ、普段の終了処理もね。」** が出るか確認してきて。それを選んで resume できたら修復成功確定。
+
+もしまだ「やったよ！」のままなら、Drive 同期がまだ反映されてない可能性 (Drive Desktop 数十秒〜数分かかることあり) → 少し待って再試行。
+
+🧑 あなた
+一度終了処理をしておいたほうがいいね？万が一このPCでresumeできなかったら、いまのやりとりが消滅してしまうよね？
+
+🤖 Claude
+完全に正しい。今ここで /end かけておけば、最悪 resume 失敗しても #17 の全 diagnostic + 修復履歴が SESSION_HISTORY と SESSION_LOG に保存される。/end 実行する。
 
 🧑 あなた
 セッションを終了する前に、以下を全て自動実行してください。**確認不要・全自動。**
@@ -240,515 +568,6 @@ done
 ```
 
 <!-- session-recall:end-hook:end v1 -->
-
-↓
-(作業)
-↓
-
-🤖 Claude
-全工程完了 ✅
-
-**セッション #15 サマリー：**
-
-| commit | 内容 |
-|---|---|
-| `ae71d71` | Phase 8: PC 横断 resume 自動化 (sync_sessions.sh + SessionStart hook) |
-| `7d5fe0e` | Phase 9 結論: 技術的詰み + CLAUDE.md Step 0 強化で代替 |
-| `00f42c7` | semantic.py: Win cp932 stdout バグ修正 |
-| `ea7d04f` | #15 終了処理 (HANDOFF / SESSION_HISTORY / SESSION_LOG) |
-
-session_counter は **16** に更新済、DB 増分更新はバックグラウンドで sleep 30 後に開始。
-
-**`/exit` で終了してください。** 次セッションは Mac で Phase 8 最終検証（picker への反映確認）が残ってる。
-
-🧑 あなた
-次はmacで新セッションで良き？
-
-🤖 Claude
-📡
-
-うん、Mac で新セッションで OK。**`claude --resume`** で起動して picker を見るのが Phase 8 検証の本命。手順：
-
-1. **Mac で `claude --resume`** 起動
-2. picker に **Win 由来 jsonl が並んでいるか** 確認（Phase 8 成功なら今日の #15 セッション含む Win 系が並ぶ）
-3. 適当に Win セッション選んで開けるか試す
-4. 開けたら新規メッセージ送って 1 ターン応答できるか確認
-
-確認ポイント：
-- 並んでない → Drive 同期で settings.json (hook 登録) がまだ Mac に届いてない可能性。`ls -la ~/Library/CloudStorage/.../_claude-sync/settings.json` の更新時刻が `14:17` 以降ならOK
-- 並んでる → Phase 8 完成 🎉
-- 開けるけど Edit/Write 系が cwd 違いで壊れる → 1 ターン応答だけで `/exit`、Phase 8 は実用 OK と判断
-
-検証成功なら HANDOFF.md / ROADMAP.md の「Mac 検証残し」項目を ✅ に書き換える流れ。Mac でやってきて。
-
-🧑 あなた
-いま、macに移行してきたぜ！resumeばっちり。状況はどう?不具合ない？
-
-🤖 Claude
-📡
-
-Mac 着いた、resume 成功おめでとう！🎉 これで Phase 8 が本当に動いた証拠。状況確認するね。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-完璧に動いてるよ！報告：
-
-## Phase 8 大成功 🎉
-
-**Mac SessionStart hook 自動発火 ✅**
-```
-[14:33:37] copied=10 skipped=18  ← Win 由来 jsonl 10 個を Mac に copy
-[14:34:00] copied=0 skipped=28   ← 冪等性 OK
-```
-
-**Drive 同期も完璧**
-- `_claude-sync/settings.json` の `[sync_sessions] ✓` が Mac 側でも見えている
-- 自フォルダに今セッションの `aeed7cdd...jsonl` (1.18MB) が居る → resume できた根拠
-
-これで「Mac で `claude --resume` → picker に Win 由来 jsonl が並ぶ → 開いて応答 OK」のフルパス完走。**Phase 8 本番検証完了**。
-
-## 唯一気になる点（実害なし）
-
-git diff に全 6 ファイル分 (約 3918 行) の差分が出てる：
-```
-HANDOFF.md          | 1044 +++++------
-SESSION_HISTORY.md  | 4760 ...
-...
-6 files changed, 3918 insertions(+), 3918 deletions(-)
-```
-
-中身は同一で **改行コードの違い (CRLF vs LF)** だけ。Win 側で push されたファイルが Drive 同期で Mac に CRLF のまま届いて、git の Mac 設定 (LF expected) と食い違う、という Drive 同期の副作用。
-
-選択肢：
-- A. `git checkout HEAD -- .` で LF に揃える（即解消、また Drive 同期で戻る可能性あり）
-- B. 放置（git diff が汚いだけで動作影響ゼロ）
-- C. `git config core.autocrlf false` で根本対応（リポローカル設定）
-
-どうする？
-
-🧑 あなた
-毎回君も引っかかるよね、たぶん。実害無くても邪魔くさくはあるw
-
-🤖 Claude
-たぶん引っかかる、毎回 git status 開くたびにノイズ。
-
-実は選択肢 C より筋良い案 D がある：
-
-**案 D: `.gitattributes` で「このリポは LF 統一」と宣言**
-
-`.gitattributes` ファイルを 1 個 commit するだけ。中身：
-```
-* text=auto eol=lf
-```
-
-これで:
-- リポ内の全ファイルが「LF」で正規化される
-- Drive 同期で CRLF 化されても git が「diff なし」として扱う
-- PC ごとの `core.autocrlf` 設定に依存しない（リポ自身が宣言）
-- 他のプロジェクトに影響なし
-
-実装手順は `.gitattributes` 追加 → `git add --renormalize .` で既存ファイルも LF 化 → commit & push。1 分で済む。
-
-これでやっちゃっていい？
-
-🧑 あなた
-うん、いいね！それはさ、プロジェクトごとにやらないとダメ？今後の新規プロジェクトも？
-
-🤖 Claude
-良いポイント。プロジェクト毎は地味すぎるよね。整理：
-
-### A. プロジェクト毎に `.gitattributes`
-- リポ単位、確実
-- 既存リポ (Memolette / Reminder_Flutter / P3 Craft / ...) 全部に追加必要
-- 新規プロジェクトも毎回追加 = 忘れがち
-
-### B. グローバル `.gitattributes` (推奨)
-- `~/.gitattributes` 作って `git config --global core.attributesfile ~/.gitattributes` で適用
-- **全 git リポ (既存 + 新規) で自動的に効く** → 1 回の設定で恒久対応
-- ただし PC ローカル設定なので **各 PC (Mac + Win × 3) で設定必要**
-- → `_claude-sync/global_gitattributes` に置いて、各 PC の setup.bat / setup_mac.sh で `~/.gitattributes` に同期する仕組みにすれば、自動配布される
-- 新規プロジェクト時も「追加忘れ」が起きない
-
-### 推奨フロー
-1. **今すぐ session-recall**: `.gitattributes` 追加 + `git add --renormalize .` で正規化（CRLF/LF 問題を即解消）
-2. **全 PC + 全リポ恒久対応**: `_claude-sync/global_gitattributes` を新設 + `git config --global core.attributesfile` で参照 → 既存リポも順次 `git add --renormalize . && git commit` で正規化（プロジェクト切り替えのタイミングで気が向いたら）
-
-A は今すぐ動作するけど狭い、B は全体に効くけど少し設定要。両方やる流れが筋良い。
-
-**順番**: まず A (session-recall) で動作確認 → 同じセッションで B のグローバル設定追加、で進めて OK？
-
-🧑 あなた
-グローバルのmdは、それこそgoogleドライブで同期されてるはずだよ、全PCで。違うのかな？
-
-🤖 Claude
-良い気づき。整理すると：
-
-**Drive 同期の現状**
-| 種類 | 同期方式 |
-|---|---|
-| `~/.claude/CLAUDE.md` | **cp 同期** (Drive 上 + 各 PC ローカルの 2 実ファイル、deploy.sh で揃える) |
-| `~/.claude/settings.json` | **symlink** (`_claude-sync/settings.json` 実体への symlink、自動同期) |
-| `~/.claude/{projects, commands, memory}` | **symlink** (同上) |
-
-**`~/.gitattributes` も同じパターンで symlink 化すれば全 PC 自動同期になる**：
-
-1. `_claude-sync/gitattributes_global` を新設（中身: `* text=auto eol=lf`）
-2. 各 PC の `~/.gitattributes` を `_claude-sync/gitattributes_global` への symlink に
-3. `setup.bat` / `setup_mac.sh` に「`~/.gitattributes` symlink 作成」を追記（新 PC で自動）
-
-これで **1 ファイル管理 + 全 PC + 既存全リポ + 新規リポ全部対応** が一発成立。CLAUDE.md と同じ思想。
-
-順番案：
-1. **今すぐ session-recall**: `.gitattributes` をプロジェクトに追加 + `renormalize` で動作確認（小さく試す）
-2. **同セッション**: `_claude-sync/gitattributes_global` 新設 + Mac の `~/.gitattributes` を symlink で配置 + `git config --global core.attributesfile` 設定
-3. **次に Win 開いたとき**: `setup.bat` 経由で Win 側にも同じ symlink + global config 配布
-
-これで進める？
-
-🧑 あなた
-うん、全くわからん！任せるぜ！笑
-
-↓
-(作業)
-↓
-
-🤖 Claude
-📡
-
-了解、全部やる。Mac 側の Remote Control 接続も来た。
-
-まず実装計画立てて、順次実行。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-完了 ✅ 全部きれい。
-
-## 結果まとめ
-
-**session-recall**: `nothing to commit, working tree clean` ← 偽差分 0
-**Memolette-Flutter**: 本物の変更 2 ファイルだけ (グローバル `~/.gitattributes` 効果で偽差分が消えた)
-
-## やったこと
-
-| | 内容 |
-|---|---|
-| 1 | `_claude-sync/gitattributes_global` 新設 (`* text=auto eol=lf`) |
-| 2 | session-recall に `.gitattributes` 追加 + commit `ee9485d` push 済 |
-| 3 | Mac の `~/.gitattributes` を `_claude-sync/gitattributes_global` への symlink + `git config --global core.attributesfile` 設定 |
-| 4 | `setup_mac.sh` に Step 4.5、`setup.bat` に Step 4d 追加 → 次に Win 起動時 setup.bat 再実行で自動配置 |
-
-## 次に Win で実行すること（リマインダー）
-1. `G:\マイドライブ\_claude-sync\setup.bat` をダブルクリック → 新 Step 4d で `~/.gitattributes` symlink + global config 自動セットアップ
-2. 既存の他 Drive 配下リポ（Memolette-Flutter, Reminder_Flutter, P3 Craft 等）も自動で改行統一が効くようになる
-
-これで「全 PC × 全リポで CRLF/LF 偽差分問題は永久解消」体制完成。
-
-🧑 あなた
-macもう1台、win3台ある。macはどうしたらいいかな？
-
-🤖 Claude
-各 PC の対応はシンプル：
-
-## Mac 2 台目（もう 1 台の Mac）
-Drive 同期で `_claude-sync/gitattributes_global` は既に届いてるはず。**手動 2 行**で済む：
-
-```bash
-ln -s "$HOME/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/gitattributes_global" ~/.gitattributes
-git config --global core.attributesfile ~/.gitattributes
-```
-
-または `bash "$HOME/Library/CloudStorage/.../_claude-sync/setup_mac.sh"` 再実行（改修した Step 4.5 含む全工程冪等）。
-
-## Win 3 台
-各 PC で **`G:\マイドライブ\_claude-sync\setup.bat` をダブルクリック**するだけ。改修した Step 4d で自動セットアップ。
-
-## いつやるか
-| 方針 | メリット |
-|---|---|
-| **今すぐリモコンで Mac 2 + Win × 3 全部** | 一気に片付く |
-| **各 PC を次に立ち上げたとき** | 強制移動不要、自然に対応される |
-
-どっちが楽？ あと「次に立ち上げたとき」方式なら、CLAUDE.md に「初回起動時に `~/.gitattributes` が無ければ symlink + config 自動セットアップ」を追記すれば、Claude が起動時に勝手にやってくれる流れにもできる。
-
-🧑 あなた
-リモートで今やっちゃうか。今後の新しいプロジェクトでも大丈夫になるんだよね？
-
-🤖 Claude
-**Yes、新規プロジェクトでも全 PC で自動的に効く** ✅
-
-理由：
-- `git config --global core.attributesfile ~/.gitattributes` がその PC の **全 git リポ** に適用される設定
-- `git init` で新規リポ作った瞬間から、その PC のグローバル `.gitattributes` が読まれて改行統一
-- → 4 PC 全部で global config が設定されれば、どの PC で `git init` しても新規プロジェクトは改行統一が自動で効く
-
-## 各 PC でコピペ手順
-
-### Mac 2 台目（terminal で 2 行）
-```bash
-ln -sf "$HOME/Library/CloudStorage/GoogleDrive-yagukyou@gmail.com/マイドライブ/_claude-sync/gitattributes_global" ~/.gitattributes
-git config --global core.attributesfile ~/.gitattributes
-```
-
-### Win × 3 台（各 PC で）
-**`G:\マイドライブ\_claude-sync\setup.bat` をダブルクリック**
-
-これで Step 4d の `~/.gitattributes` symlink + global config が自動セットアップ。既存の他項目は冪等なので再実行で問題なし。
-
----
-
-確認用コマンド（任意、各 PC で実行して結果を共有してくれれば検証する）：
-```bash
-ls -la ~/.gitattributes && git config --global --get core.attributesfile
-```
-
-どっちから着手する？ Win 3 台一気に setup.bat 走らせて、Mac 2 台目は最後に手動 2 行が楽かも。
-
-🧑 あなた
-リモートだからターミナルコピペしんどいな。もう一台でこのチャットをresumeしたら君がやってくれたりするの？macなら。
-
-🤖 Claude
-📡
-
-**Yes、できる**！むしろそれが一番楽。Phase 8 のおかげで全 PC でこのセッション resume できるはず。
-
-## 仕組み
-- 各 PC で `claude --resume` → SessionStart hook が動いて Win/Mac 由来 jsonl が picker に並ぶ
-- このセッション (`aeed7cdd...`) を選んで resume → 俺がチャット履歴を引き継いで作業
-- 「やって」と言うだけ → 俺が Bash tool で 2 行実行
-- Win も Git Bash 経由で同じ 2 行が動く（setup.bat ダブルクリック不要）
-- 最後に `git status` 等で確認まで自動
-
-## 手順案（順次）
-1. **今 Mac 1 (ここ)** で `/exit`
-2. **Mac 2** で `claude --resume` → このセッション選択 → 「やって」 → 俺がセットアップ → `/exit`
-3. **Win 1** で同上
-4. **Win 2** で同上
-5. **Win 3** で同上
-
-## 注意
-- 各 PC を渡り歩く前に **必ず `/exit`** で前 PC を閉じる（同じ jsonl への同時書き込み禁止）
-- 連続 resume すると jsonl が PC ごとに分岐するけど、Drive 同期で最新版が拡散して大体収束する
-- やる作業は同じ 2 行だけなので、5 PC × 2 分くらいで全部完了するはず
-
-最終的には全 PC でこの状態：
-```
-~/.gitattributes -> _claude-sync/gitattributes_global  (symlink)
-git config --global core.attributesfile = ~/.gitattributes
-```
-
-これで「全 PC × 既存全リポ × 新規全プロジェクトで CRLF/LF 偽差分は永久解消」体制完成。
-
-Mac 1 (ここ) の `/exit` 待ってる。
-
-🧑 あなた
-おお、windowsでもいけるのか。それは助かるわ。ではそうするよ！
-
-🤖 Claude
-📡
-
-OK、では **Mac 1 (ここ) で `/exit`** どうぞ。
-
-各 PC で resume してきたら、このチャットの流れを引き継ぐから「やって」と一言で OK。Mac 2 → Win 1 → Win 2 → Win 3 の順で頼む。
-
-最後の PC で全部終わったら、そこで /end 締めて #16 セッションとして記録する流れになる。
-
-行ってらっしゃい！
-
-↓
-(作業)
-↓
-
-🧑 あなた
-はい、次のmacきたよ！やって！
-
-🤖 Claude
-📡
-
-了解、Mac 2 のセットアップやる。まず現状確認してから symlink + config 設定。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-あれ、既に設定済みになってる！
-
-```
-~/.gitattributes -> _claude-sync/gitattributes_global  ✅ (symlink、4月 26 14:45 作成)
-git config --global core.attributesfile = ~/.gitattributes  ✅
-```
-
-hostname は `appurunoMacBook-Air.local`、symlink の作成時刻は Mac 1 でセットアップしたのと同じ 14:45。
-
-これは Mac 1 と Mac 2 が **同じ物理マシン**だった可能性大（`~/.gitattributes` は `~/` 配下で Drive 同期されないので、別 PC なら未設定のはず）。
-
-確認したいんだけど：
-- このマシン、Mac 1 と物理的に違う Mac？
-- それとも同じ Mac で `claude --resume` した感じ？
-
-もし同じ Mac なら、もう全 Mac 完了 → Win × 3 に直行で OK。違う Mac なら謎現象（要調査）。
-
-あと `_claude-sync/gitattributes_global` も届いてるので、**もう一台の Mac が別途あるならそっちで「やって」と言えば俺がセットアップする**。
-
-↓
-(作業)
-↓
-
-🧑 あなた
-間違えて同じマシンでやってたよ。今度こそ移動してきたよ！
-
-🤖 Claude
-📡
-
-了解、本物の Mac 2 でやる。状態確認から。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-Mac 2 完了 ✅
-
-```
-~/.gitattributes -> _claude-sync/gitattributes_global  (symlink、22:26 作成)
-git config --global core.attributesfile = ~/.gitattributes
-HANDOFF.md: text: auto, eol: lf  ← 適用OK
-git status: クリーン（偽差分なし）
-```
-
-**進捗: Mac × 2 ✅、Win × 3 ⬜**
-
-次は Win 1 台目で `claude --resume` → このセッション選んで「やって」と言うだけ。Mac 2 は `/exit` してね。
-
-行ってらっしゃい！
-
-↓
-(作業)
-↓
-
-🧑 あなた
-はい、windowsにきたよ！あと、僕のミスで、resume同期メンバーににそもそも参加してないwindowsマシンがひとつある。それはどうしたらいいんだっけ？
-
-🤖 Claude
-📡
-
-了解、まず今いる Win でセットアップ。同時に未参加 Win マシンの対処も整理。
-
-↓
-(作業)
-↓
-
-🤖 Claude
-Win (`Clinic-dell`) 完了 ✅ MSYS=winsymlinks:nativestrict で symlink も問題なく作れた。
-
-**進捗: Mac × 2 ✅、Win 1/3 ✅、Win 2/3 ⬜、Win 3/3 ⬜**
-
-## 同期未参加 Win マシンの対処
-
-そのマシンに対してやることは **`G:\マイドライブ\_claude-sync\setup.bat` をダブルクリック** **1 回だけ**：
-
-| setup.bat の処理 | 内容 |
-|---|---|
-| Step 0 | Developer Mode 確認 (OFF なら停止 → ON にして再実行) |
-| Step 1〜3 | `~/.claude/{CLAUDE.md, settings.json, commands, projects, memory, hooks}` を `_claude-sync/` への symlink 化 |
-| Step 4 | `.bashrc` に shared-env source 追加 |
-| Step 4b/4c | Microsoft Store Python 無効化、py.ini 配布 |
-| **Step 4d (今回追加)** | **`~/.gitattributes` symlink + git config global 設定** |
-
-これ 1 回で：
-- そのマシンが Drive 同期メンバーに参加（CLAUDE.md, settings.json, projects 共有）
-- `claude --resume` で他 PC のセッションが picker に並ぶ（Phase 8 hook が自動で動く）
-- gitattributes も自動配置 ← 今回の作業も同時に完結
-
-その後 Claude Code (まだなら `irm https://claude.ai/install.ps1 | iex` でネイティブ版インストール) → そのマシンでも `claude --resume` でこのセッション開けるようになるはず。
-
----
-
-このマシン (`Clinic-dell`) は `/exit` でいい？ 次は残り Win 2 台 + 同期未参加マシンの順？
-
-🧑 あなた
-おっけー！やってくるよ！
-
-🤖 Claude
-📡
-
-了解、行ってらっしゃい！残り Win 2 台 + 同期未参加マシンも頼む。
-
-このマシン (`Clinic-dell`) は `/exit` してね。次の Win で resume → このセッション選んで「やって」で同じ作業を流す。
-
-同期未参加マシンは **setup.bat ダブルクリック 1 発** で全部入る（Step 4d で gitattributes も含めて完結）。終わったら Claude Code 起動して `claude --resume` でこのセッションも開けるようになるはず。
-
-最後の PC で全部終わったら、そこで `/end` 締めて #16 セッションとして記録する流れで。
-
-🧑 あなた
-あ、batファイルはプロジェクトフォルダのルートにある？
-
-🤖 Claude
-いや、session-recall プロジェクトじゃなくて **`_claude-sync` フォルダ直下** にあるよ。
-
-**フルパス**: `G:\マイドライブ\_claude-sync\setup.bat`
-
-エクスプローラで開く場合：
-1. Google ドライブ → マイドライブ → `_claude-sync` フォルダ
-2. その中の `setup.bat` をダブルクリック
-
-未参加 Win マシンの場合、Drive 同期がそもそも届いてるか先に確認した方がいい。届いてれば `_claude-sync` フォルダがエクスプローラから見えるはず。届いてなければ Drive Desktop のセットアップから。
-
-🧑 あなた
-他の2台のPCで、resumeが効かないなぁ。効かないというか、このセッションが全く出てこない。googleドライブは「最新」となっているのに、だよ。だから未参加だと思ったけど、もしかしたら何かの不具合かもしれない。一旦endして、そっちのPCで君を立ち上げて診断してもらおうかな？
-
-🤖 Claude
-📡
-
-end する前に、Mac 1 から Drive 経由で Win 各機の状態を診断できる。Phase 8 のおかげで全 PC のセッションフォルダが Mac から見えるから。
-
-↓
-(作業)
-↓
-
-🧑 あなた
-いまはwinその1だよ、ちなみに！
-
-🧑 あなた
-[Request interrupted by user]
-
-🤖 Claude
-あ、Win 1 (Clinic-dell) なんだね、把握。さっきは Mac パスでコマンド叩いてしまった、ごめん。
-
-Drive 経由で他 PC 状態が見えた限りでは：
-- Mac フォルダ、Win G フォルダ、Win G (1) フォルダの **3 つすべてに aeed7cdd の jsonl がある** ← Drive レベルでは全 PC に届いてる
-
-つまり Drive 同期は OK。問題は Win 2 / 3 の **ローカル**側にあるはず。候補：
-
-1. **`~/.claude/projects/` が junction になってない** (setup.bat 未実行 or 壊れた) → Drive 内容を読めない
-2. **Drive Desktop が Stream モード**で、jsonl がオンデマンド DL 未取得 → picker のリストアップ時に見えない
-3. **claude --resume の cwd が違う** (session-recall フォルダで起動してない)
-
-これは Win 2 のローカルを実機で見ないと特定不可。ユーザーの提案通り、**Win 2 で別 Claude 立ち上げて直接診断**が筋。
-
-## 提案する流れ
-
-1. **Win 1 (ここ) は `/exit`** ← もう作業完了
-2. **Win 2 に物理移動 → `claude` 新規起動** (resume 効かないので新規でいい、cwd は `G:\マイドライブ\_Apps2026\session-recall` フォルダで)
-3. 起動後すぐ俺に **「Phase 8 hook が動かない件、診断して」** と頼む
-4. 新セッションの俺は HANDOFF.md / SESSION_HISTORY.md 読んで状況把握 → 各種診断コマンド実行
-5. 原因特定 → setup.bat 再実行 or 個別修正
-
-新セッションの俺が困らないように、HANDOFF.md に「Win 2 で resume が効かない件を Win 2 セッションで診断中」とメモ追加しとこうか？
-
-🧑 あなた
-そだね。かつ、普段の終了処理もね。
-
-🤖 Claude
-📡
-
-了解、HANDOFF メモ追記 + /end 相当の終了処理を実行する。
 
 ↓
 (作業)
