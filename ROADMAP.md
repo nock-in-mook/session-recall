@@ -194,33 +194,39 @@ Claude Code v2.1.116〜 の MCP regression（custom stdio MCP のツール露出
 - `claude --resume` の picker は cwd フィルタする仕様（claude-code-guide で公式ドキュメント確認）
 - `Ctrl+A` で picker 全表示はできるが、別 cwd セッションを選んでも開けない罠（要 UUID 直指定）
 
-## Phase 9: .git Drive 同期問題の根本対策 (.git ローカル化) 候補
-Drive 配下の git リポジトリで `.git/` も Drive 同期されてしまう問題の根本対策。
+## Phase 9: .git Drive 同期問題の根本対策 — 技術的詰み、運用ルールで代替 (#15 で結論)
 
 ### 背景
 - `_Apps2026/session-recall/` は Drive 上 → `.git/` ディレクトリも同期対象
 - セッション #14 で Mac 側 Claude が古い `.git/` 状態で resume → Drive 同期で Win 側 `.git/` が `6ead100` (#12 終了時) に上書きされる事故発生
 - ローカルから push 済みコミット (`18d1f51` `89c8ead` 等) が消えて見える状態に
-- 復旧は `git fetch && git reset --hard origin/main` で可能（GitHub に残ってるので）、ただし毎回手動対応はリスク
+- 復旧は `git fetch && git reset --hard origin/main` で可能（GitHub に残ってるので）
 
-### 設計
-- `.git/` だけ PC ローカルに symlink で逃がす:
-  - 例: `_Apps2026/session-recall/.git` → `~/repos/session-recall/.git` (各 PC ローカル)
-- 各 PC のセットアップスクリプト（`setup.bat` / `setup_mac.sh`）に組み込んで自動化
-- 既存の Drive 配下他リポ（Memolette-Flutter, Reminder_Flutter, P3 Craft 等）も順次対応
+### 当初の設計（symlink/junction 案）
+`_Apps2026/session-recall/.git` を PC ローカル (`~/repos/session-recall/.git`) への symlink/junction に置き換えれば Drive 同期から外せる。setup.bat / setup_mac.sh で自動化、既存 Drive 配下リポ（Memolette-Flutter 等）も順次展開。
 
-### メリット
-- ローカル `.git/` 上書き事故が原理的にゼロ
-- 複数 PC 同時 commit が Drive の「最終勝者」じゃなく **git の正規 merge** で解決される
-- git 哲学的にも正しい（`.git/` は本来ローカルメタデータ）
+### #15 で技術的に詰んだことが判明
+| 試した方式 | 結果 |
+|---|---|
+| Win junction (`mklink /J`) | ❌ Drive 仮想 FS は NTFS でないため拒否 |
+| Win symlink (`mklink /D`) | ❌ Drive クライアントが「このデバイスではシンボリックリンクがサポートされていません」 |
+| Mac symlink | ⚠️ 「起動時のみ同期」「regular file 扱い」「PC ごとパス違い」で死亡 |
+| Drive Desktop 「Sync only these folders」 | ❌ サブフォルダ単位 (`.git/`) の除外不可 |
+| 第三者ツール Insync ($30) | △ glob exclude 可、ただし要購入 + Mac でも入れ替え必要 |
+| gitfile (`.git` を `gitdir: ...` テキスト) | ❌ PC ごとに内容違う必要 → Drive 同期で毎回衝突 |
 
-### 不便
-- PC 切り替え時に `git pull` 必須（既に CLAUDE.md Step 0 にあるので運用変化なし）
-- 新 PC セットアップに `.git/` symlink 配置作業（自動化可能）
-- 既存全リポ順次対応必要（段階展開）
+→ **Drive 同期と git の同居は本質的に詰む**。Drive 配下にリンクを作る方式は OS / Drive クライアントの両方で拒否される。
 
-### 緊急度
-中〜高（再発時に手動復旧で対処可、ただしセッションをまたぐたびに事故リスク）
+### 採用した代替: 運用ルールで巻き戻り検知
+`_claude-sync/CLAUDE.md` の Step 0 を改修済み（#15 で実装）:
+
+1. `git fetch origin` で最新リモート取得
+2. `git status -sb` で behind / ahead を判定
+3. behind なら `git pull --ff-only` を試す。失敗（fast-forward 不可）→ **Drive 同期巻き戻り**と判定 → ユーザーに「未 push WIP ありますか？」確認の上 `git reset --hard origin/main`
+4. ahead のみなら自動 `git push`
+5. ahead && behind なら手動判断を仰ぐ
+
+これで「push 済みコミットは GitHub から復元」「未 push WIP はユーザーが意識して commit 切る」運用が成立。事故起きても自動検知 + 復旧で実害ゼロ。
 
 ## アイデアメモ
 - `/timeline <期間>` で時系列ダイジェスト
