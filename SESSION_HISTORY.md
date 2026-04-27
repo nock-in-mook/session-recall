@@ -3621,3 +3621,39 @@ HP-Pavilion-myhome で修復直後に検証実施:
 - **B. Drive 同期事故の構造的対策 = Phase 11 候補**: 複数 PC で同セッション並行 active を避ける運用ルール化、または完結 jsonl 保護機構 (技術的には Phase 9 同様詰む可能性大)
 - **C. Win 3 の同期状態確認**: 退避バックアップ復元が必要かもしれない
 - **D. 「別 PC への移動 = 新規セッション」運用ルール化**: a9c6df23 (このセッション #17 + #18) も Mac で resume すると古版 (948KB) しか取れない。新規セッションで HANDOFF 読み直しが現実解
+
+---
+## #19 (2026-04-28)
+
+### Phase 8/10 完全撤去 ✅
+#18 末で確定した「PC 横断 resume プロジェクトはやめる」方針を実行。Drive 同期事故 (jsonl 巻き戻り) が構造的に避けられないため、関連機能を全撤去して「正式 /end → 新規セッションで HANDOFF/SESSION_HISTORY 読む」運用に統一。
+
+**実施内容 (A〜H):**
+- **A.** リポ scripts/ から 5 ファイル削除 (sync_sessions.sh / register_hook.py / pre_claude_sync.sh / cleanup_empty_sessions.sh / claude_wrapper.sh)
+- **B.** `_claude-sync/session-recall/` から配布物 4 ファイル削除 (register_hook.py は元々非配布)
+- **C.** `_claude-sync/settings.json` の hooks.SessionStart から sync_sessions エントリ削除 (start_remote_monitor / archive_prev_session は残存)
+- **D.** このPC の `.bashrc` から `claude_wrapper.sh` source 行削除 (他 PC は本体ファイル削除済みなので fallthrough して無害)
+- **E.** `_claude-sync/setup.bat` Step 4e + `setup_mac.sh` Step 4.6 削除 (新 PC 初回 setup から wrapper 注入工程消去)
+- **F.** `deploy.sh` を 20 → 15 工程に整理 (Phase 1〜7 のみ)、変数 SYNC_SESSIONS_SH / PRE_CLAUDE_SYNC_SH / CLEANUP_EMPTY_SESSIONS_SH / CLAUDE_WRAPPER_SH と関数 register_session_start_hook() も削除
+- **G.** `ROADMAP.md` の Phase 8 を「撤去 = 教訓」セクションに書き換え (Phase 9 と並列で「Drive 同期 + git/jsonl 共有は本質的に詰む」を記録)
+- **H.** `HANDOFF.md` 冒頭に「⚠️ 最新方針 (#19) - 確定運用フロー」セクション追加、#19 残課題チェック完了
+
+**コミット:** `5b63899` (8 ファイル変更、538 行純減 / 96 行追加)
+
+**確定運用方針 (PC 跨ぎ含む):**
+1. 各 PC で **新規 `claude` 起動** (resume しない)
+2. cwd は通常のプロジェクトフォルダ
+3. CLAUDE.md Step 0 で `git pull` → 最新コード取得
+4. HANDOFF.md / SESSION_HISTORY.md で前回文脈把握
+5. 続きを実行 → /end で締め (HANDOFF/SESSION_HISTORY 自動更新 + commit/push)
+
+**Drive 圏外バックアップ (撤去後も保持):**
+- `~/aeed7cdd-backup/aeed7cdd-complete-1882349B-20260427-013556.jsonl` (#16 完結状態)
+- `~/.claude/projects-backup-before-merge/regular-20260427-013810/` (#17 修復前)
+- `~/.claude/projects-backup-before-merge/mac-cwd-20260427-021708/` (#18 応急処置前)
+
+### #20 以降の低優先度残課題 (HANDOFF §7 末尾参照)
+- B. Win 3 (HP-Pavilion 系) の同期状態最終確認
+- C. Drive 同期事故の構造的予防スクリプト案 (heal_drive_dup.sh)
+- D. picker 識別性改善案 (SESSION_HISTORY 連番との紐付け)
+- 全 PC での MCP regression 状況定期確認 (Claude Code 修正版が出たら再テスト)
